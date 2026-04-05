@@ -203,10 +203,29 @@ function DetailPanel({row,onClose}) {
       </div>
       {mh.pa>0&&(
         <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
-          padding:"10px 14px",marginBottom:16,fontSize:11,color:"#7a9ab5"}}>
+          padding:"10px 14px",marginBottom:12,fontSize:11,color:"#7a9ab5"}}>
           Head-to-head: <strong style={{color:"#e8f4f8"}}>{mh.pa} PA</strong>,{" "}
           <strong style={{color:"#ff9f1c"}}>{mh.hr} HR</strong>
           {mh.ev_mean?`, avg EV ${mh.ev_mean} mph`:""}
+        </div>
+      )}
+      {row.weather&&(row.weather.temp_f||row.weather.wind_mph_out)&&(
+        <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
+          padding:"10px 14px",marginBottom:12,fontSize:10,color:"#7a9ab5",
+          display:"flex",gap:16,flexWrap:"wrap"}}>
+          {row.weather.temp_f!=null&&(
+            <span>🌡 <strong style={{color:"#e8f4f8"}}>{row.weather.temp_f}°F</strong></span>
+          )}
+          {row.weather.wind_mph_out!=null&&(
+            <span>{row.weather.wind_mph_out>=0?"💨 OUT":"💨 IN"}{" "}
+              <strong style={{color:row.weather.wind_mph_out>0?"#6bcb77":row.weather.wind_mph_out<0?"#ff6b6b":"#e8f4f8"}}>
+                {Math.abs(row.weather.wind_mph_out)} mph
+              </strong>
+            </span>
+          )}
+          {row.weather.humidity_pct!=null&&(
+            <span>💧 <strong style={{color:"#e8f4f8"}}>{row.weather.humidity_pct}%</strong> humidity</span>
+          )}
         </div>
       )}
       <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:10}}>MODEL FACTORS</div>
