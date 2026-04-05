@@ -110,7 +110,7 @@ function LeaderboardRow({row,selected,onClick}) {
   const c=GRADE_CLR[pred.grade]||"#7a9ab5"; const isTop=row.rank<=3;
   return (
     <div onClick={onClick} style={{display:"grid",
-      gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 60px",
+      gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 80px",
       alignItems:"center",gap:6,padding:"10px 12px",cursor:"pointer",
       borderBottom:"1px solid #0d1b2a",
       background:selected?"#0f2540":isTop?"#0a1e35":"transparent",
@@ -145,9 +145,14 @@ function LeaderboardRow({row,selected,onClick}) {
         <div style={{fontSize:8,color:"#4a7fa5"}}>Park</div>
       </div>
       <div style={{textAlign:"center"}}>
-        <div style={{fontSize:9,color:"#4a7fa5"}}>
-          {(pred.ci_low*100).toFixed(1)}-{(pred.ci_high*100).toFixed(1)}</div>
-        <div style={{fontSize:8,color:"#4a7fa5"}}>90% CI</div>
+        <div style={{fontSize:11,color:
+          bf.hard_hit_rate>=0.55?"#ff3b3b":
+          bf.hard_hit_rate>=0.50?"#ff9f1c":
+          bf.hard_hit_rate>=0.45?"#ffbf47":"#e8f4f8",
+          fontWeight:bf.hard_hit_rate>=0.50?700:400}}>
+          {bf.hard_hit_rate!=null?(bf.hard_hit_rate*100).toFixed(1)+"%":"-"}
+        </div>
+        <div style={{fontSize:8,color:"#4a7fa5"}}>Hard Hit%</div>
       </div>
     </div>
   );
@@ -266,6 +271,7 @@ function App() {
   const [selectedGames,setSelectedGames] = useState(new Set()); // empty = all games
   const [search,setSearch]   = useState("");
   const [gradeFilter,setGradeFilter]= useState("ALL");
+  const [sortField,setSortField]     = useState("hr_probability"); // hr_probability | hard_hit_rate
 
   // Single predict
   const [batterName,setBatterName]   = useState("");
@@ -348,12 +354,17 @@ function App() {
 
   const filtered = useMemo(()=>{
     if(!lbData?.leaderboard) return [];
-    return lbData.leaderboard.filter(row=>{
+    let rows = lbData.leaderboard.filter(row=>{
       if(gradeFilter!=="ALL"&&row.prediction?.grade!==gradeFilter) return false;
       if(search&&!row.batter_name?.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-  },[lbData,gradeFilter,search]);
+    if(sortField==="hard_hit_rate"){
+      rows = [...rows].sort((a,b)=>
+        (b.batter_features?.hard_hit_rate||0)-(a.batter_features?.hard_hit_rate||0));
+    }
+    return rows;
+  },[lbData,gradeFilter,search,sortField]);
 
   const BTN = {background:"linear-gradient(135deg,#0f2a45,#1a3a5c)",
     border:"1px solid #2e6aad",color:"#e8f4f8",borderRadius:7,
@@ -485,7 +496,7 @@ function App() {
                   <span style={{fontSize:9,color:"#4a7fa5",marginLeft:"auto"}}>{filtered.length} results</span>
                 </div>
                 {/* Table header */}
-                <div style={{display:"grid",gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 60px",
+                <div style={{display:"grid",gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 80px",
                   gap:6,padding:"6px 12px",borderBottom:"1px solid #1e2a3a",
                   fontSize:8,color:"#4a7fa5",letterSpacing:2}}>
                   <div style={{textAlign:"center"}}>#</div>
@@ -494,7 +505,12 @@ function App() {
                   <div style={{textAlign:"center"}}>EV 90TH</div>
                   <div style={{textAlign:"center"}}>BARREL%</div>
                   <div style={{textAlign:"center"}}>PARK</div>
-                  <div style={{textAlign:"center"}}>90% CI</div>
+                  <div onClick={()=>setSortField(s=>s==="hard_hit_rate"?"hr_probability":"hard_hit_rate")}
+                    style={{textAlign:"center",cursor:"pointer",
+                      color:sortField==="hard_hit_rate"?"#ff9f1c":"#4a7fa5",
+                      userSelect:"none"}}>
+                    HARD HIT%{sortField==="hard_hit_rate"?" ↓":""}
+                  </div>
                 </div>
                 <div style={{background:"#080f1a",borderRadius:8,overflow:"hidden",border:"1px solid #1e2a3a"}}>
                   {filtered.length===0
