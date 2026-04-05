@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Intel — MLB Home Run Predictor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05090f;color:#e8f4f8;font-family:'Courier New',monospace;min-height:100vh}
+  input,select{background:#080f1a;border:1px solid #1e3a5f;border-radius:7px;padding:9px 12px;
+    color:#e8f4f8;font-size:12px;font-family:'Courier New',monospace;outline:none;width:100%}
+  button{cursor:pointer;font-family:'Courier New',monospace;transition:all 0.2s}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:#080f1a}
+  ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:3px}
+  select option{background:#080f1a}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useCallback,useEffect,useRef,useMemo} = React;
+
+// ── Config ────────────────────────────────────────────────────────────────────
+const LAMBDA      = "https://z1yqu5bt81.execute-api.us-east-2.amazonaws.com";
+const TODAY     = new Date().toISOString().slice(0,10);
+const GRADE_CLR = {"A+":"#ff3b3b","A":"#ff6b35","B+":"#ff9f1c","B":"#ffbf47","C+":"#6bcb77","C":"#4d96ff","D":"#7a9ab5"};
+const PARKS     = ["COL","CIN","PHI","HOU","MIL","ARI","BAL","BOS","TEX","NYY","ATL","CHC","TOR","DET","MIN","STL","LAD","CLE","WSH","MIA","SEA","SFG","SDP","OAK","NYM","LAA","CHW","PIT","KCR","TBR"];
+
+// ── Fetch ─────────────────────────────────────────────────────────────────────
+async function apiFetch(path, token, options={}) {
+  const base = LAMBDA.replace(/\/+$/,"");
+  const r = await fetch(`${base}${path}`, {
+    ...options,
+    headers: {"Content-Type":"application/json","x-token":token, ...(options.headers||{})},
+  });
+  const txt = await r.text();
+  if(!r.ok) throw new Error(`HTTP ${r.status}: ${txt.slice(0,200)}`);
+  return JSON.parse(txt);
+}
+
+// ── PlayerSearch ──────────────────────────────────────────────────────────────
+function PlayerSearch({label,role,token,onSelect,value,onChange}) {
+  const [results,setResults] = useState([]);
+  const [open,setOpen]       = useState(false);
+  const [busy,setBusy]       = useState(false);
+  const debRef = useRef(null);
+  const wrapRef= useRef(null);
+  useEffect(()=>{
+    const h=e=>{if(wrapRef.current&&!wrapRef.current.contains(e.target))setOpen(false)};
+    document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
+  },[]);
+  const search = v => {
+    if(!token||v.length<2){setResults([]);setOpen(false);return;}
+    setBusy(true);
+    apiFetch(`/player/search?q=${encodeURIComponent(v)}&role=${role}`,token,{method:"GET"})
+      .then(d=>{setResults(d.players||[]);setOpen(true);})
+      .catch(()=>setResults([]))
+      .finally(()=>setBusy(false));
+  };
+  const handleChange = e => {
+    onChange(e.target.value,"");
+    clearTimeout(debRef.current);
+    debRef.current = setTimeout(()=>search(e.target.value),400);
+  };
+  return (
+    <div ref={wrapRef} style={{position:"relative",marginBottom:12}}>
+      <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>
+      <div style={{position:"relative"}}>
+        <input value={value} onChange={handleChange} onFocus={()=>results.length>0&&setOpen(true)}
+          placeholder={token?"Type player name…":"Set token in Config first"}/>
+        {busy&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"#4a7fa5"}}>⟳</span>}
+      </div>
+      {open&&results.length>0&&(
+        <div style={{position:"absolute",zIndex:999,top:"100%",left:0,right:0,background:"#0d1f33",
+          border:"1px solid #2e5a8a",borderRadius:8,marginTop:4,maxHeight:200,overflowY:"auto",
+          boxShadow:"0 8px 32px rgba(0,0,0,0.8)"}}>
+          {results.map(p=>(
+            <div key={p.mlbam_id}
+              onClick={()=>{onChange(p.name,p.mlbam_id);setOpen(false);}}
+              style={{padding:"8px 14px",cursor:"pointer",borderBottom:"1px solid #1e2a3a",
+                display:"flex",justifyContent:"space-between",alignItems:"center"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#1a3a5c"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div>
+                <span style={{color:"#e8f4f8",fontSize:12}}>{p.name}</span>
+                <span style={{marginLeft:8,fontSize:9,padding:"1px 6px",borderRadius:4,
+                  background:p.active?"#0a2a1a":"#1a1a1a",color:p.active?"#6bcb77":"#4a7fa5",
+                  border:`1px solid ${p.active?"#2a6a3a":"#2a2a3a"}`}}>
+                  {p.active?"ACTIVE":(p.mlb_last||"RETIRED")}</span>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:9,color:"#ff9f1c"}}>{p.mlbam_id}</div>
+                <div style={{fontSize:9,color:"#4a7fa5"}}>{p.position}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── LeaderboardRow ────────────────────────────────────────────────────────────
+function LeaderboardRow({row,selected,onClick}) {
+  const pred=row.prediction; const bf=row.batter_features||{};
+  const c=GRADE_CLR[pred.grade]||"#7a9ab5"; const isTop=row.rank<=3;
+  return (
+    <div onClick={onClick} style={{display:"grid",
+      gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 60px",
+      alignItems:"center",gap:6,padding:"10px 12px",cursor:"pointer",
+      borderBottom:"1px solid #0d1b2a",
+      background:selected?"#0f2540":isTop?"#0a1e35":"transparent",
+      borderLeft:`3px solid ${selected?c:isTop?c+"88":"transparent"}`}}
+      onMouseEnter={e=>{if(!selected)e.currentTarget.style.background="#0a1628"}}
+      onMouseLeave={e=>{if(!selected)e.currentTarget.style.background=isTop?"#0a1e35":"transparent"}}>
+      <div style={{fontSize:isTop?15:12,fontWeight:700,color:isTop?c:"#4a7fa5",textAlign:"center"}}>
+        {row.rank<=3?["🥇","🥈","🥉"][row.rank-1]:row.rank}
+      </div>
+      <div>
+        <div style={{fontSize:12,color:"#e8f4f8",fontWeight:600}}>{row.batter_name}</div>
+        <div style={{fontSize:9,color:"#4a7fa5",marginTop:1}}>
+          {row.batter_team} vs {row.pitcher_name} · {row.park_code}{row.batting_order?` · #${row.batting_order}`:""}
+        </div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{display:"inline-block",background:c+"22",border:`1px solid ${c}`,
+          color:c,borderRadius:5,padding:"1px 8px",fontSize:13,fontWeight:700}}>{pred.grade}</div>
+        <div style={{fontSize:11,color:"#e8f4f8",marginTop:2}}>{pred.hr_probability_pct?.toFixed(1)}%</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"#e8f4f8"}}>{bf.ev_90th??"-"}</div>
+        <div style={{fontSize:8,color:"#4a7fa5"}}>EV 90th</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"#e8f4f8"}}>{bf.barrel_rate!=null?(bf.barrel_rate*100).toFixed(1)+"%":"-"}</div>
+        <div style={{fontSize:8,color:"#4a7fa5"}}>Barrel%</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:row.park_factor>1?"#ff9f1c":row.park_factor<0.95?"#6bcb77":"#e8f4f8"}}>
+          {row.park_factor?.toFixed(2)}x</div>
+        <div style={{fontSize:8,color:"#4a7fa5"}}>Park</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:9,color:"#4a7fa5"}}>
+          {(pred.ci_low*100).toFixed(1)}-{(pred.ci_high*100).toFixed(1)}</div>
+        <div style={{fontSize:8,color:"#4a7fa5"}}>90% CI</div>
+      </div>
+    </div>
+  );
+}
+
+// ── DetailPanel ───────────────────────────────────────────────────────────────
+function DetailPanel({row,onClose}) {
+  if(!row)return null;
+  const pred=row.prediction; const bf=row.batter_features||{};
+  const pf=row.pitcher_features||{}; const mh=row.matchup_history||{};
+  const c=GRADE_CLR[pred.grade]||"#7a9ab5";
+  return (
+    <div style={{background:"#080f1a",border:"1px solid #1e3a5f",borderRadius:10,padding:20,
+      position:"sticky",top:16,maxHeight:"90vh",overflowY:"auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:"#e8f4f8"}}>{row.batter_name}</div>
+          <div style={{fontSize:10,color:"#4a7fa5",marginTop:3}}>
+            {row.batter_team} · #{row.batting_order||"?"} · {row.position||"?"}</div>
+          <div style={{fontSize:10,color:"#4a7fa5"}}>vs {row.pitcher_name} ({row.pitcher_team})</div>
+          <div style={{fontSize:10,color:"#4a7fa5"}}>{row.venue} · {row.park_code}</div>
+        </div>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#4a7fa5",fontSize:18}}>✕</button>
+      </div>
+      <div style={{textAlign:"center",margin:"16px 0",padding:16,background:`${c}11`,border:`1px solid ${c}44`,borderRadius:8}}>
+        <div style={{fontSize:32,fontWeight:700,color:c}}>{pred.hr_probability_pct?.toFixed(2)}%</div>
+        <div style={{fontSize:11,color:"#7a9ab5",marginTop:4}}>HR Probability · Grade {pred.grade}</div>
+        <div style={{fontSize:10,color:"#4a7fa5",marginTop:4}}>
+          90% CI: {(pred.ci_low*100).toFixed(1)}% – {(pred.ci_high*100).toFixed(1)}%</div>
+      </div>
+      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>BATTER ({bf.pa_sample} PA)</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+        {[["EV Mean",bf.ev_mean,"mph"],["EV 90th",bf.ev_90th,"mph"],["Launch Ang",bf.launch_angle,"°"],
+          ["Barrel%",bf.barrel_rate!=null?(bf.barrel_rate*100).toFixed(1)+"%":null,""],
+          ["Hard Hit%",bf.hard_hit_rate!=null?(bf.hard_hit_rate*100).toFixed(1)+"%":null,""],
+          ["HR Count",bf.hr_count,""]].map(([l,v,u])=>(
+          <div key={l} style={{background:"#0d1b2a",borderRadius:7,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:"#4a7fa5",marginBottom:3}}>{l}</div>
+            <div style={{fontSize:14,fontWeight:600,color:"#e8f4f8"}}>{v??"-"}{v!=null&&u?<span style={{fontSize:8,color:"#7a9ab5",marginLeft:2}}>{u}</span>:null}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>PITCHER ({pf.bf_sample} BF)</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+        {[["HR/9",pf.hr_per_9],["EV Allowed",pf.ev_allowed_mean!=null?pf.ev_allowed_mean+" mph":null],
+          ["FB Rate",pf.fly_ball_rate!=null?(pf.fly_ball_rate*100).toFixed(1)+"%":null],
+          ["Barrel% Ag.",pf.barrel_rate_against!=null?(pf.barrel_rate_against*100).toFixed(1)+"%":null]].map(([l,v])=>(
+          <div key={l} style={{background:"#0d1b2a",borderRadius:7,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:"#4a7fa5",marginBottom:3}}>{l}</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#e8f4f8"}}>{v??"-"}</div>
+          </div>
+        ))}
+      </div>
+      {mh.pa>0&&(
+        <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
+          padding:"10px 14px",marginBottom:16,fontSize:11,color:"#7a9ab5"}}>
+          Head-to-head: <strong style={{color:"#e8f4f8"}}>{mh.pa} PA</strong>,{" "}
+          <strong style={{color:"#ff9f1c"}}>{mh.hr} HR</strong>
+          {mh.ev_mean?`, avg EV ${mh.ev_mean} mph`:""}
+        </div>
+      )}
+      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:10}}>MODEL FACTORS</div>
+      {Object.entries(pred.factors||{}).map(([k,v])=>{
+        const c2=v.contribution||0; const pos=c2>=0;
+        return (
+          <div key={k} style={{marginBottom:7}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#7a9ab5",marginBottom:2}}>
+              <span>{k.replace(/_/g," ").toUpperCase()}</span>
+              <span style={{color:pos?"#6bcb77":"#ff6b6b"}}>{pos?"+":""}{c2.toFixed(3)}</span>
+            </div>
+            <div style={{height:4,background:"#0d1b2a",borderRadius:2,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${Math.min(Math.abs(c2)/0.5,1)*100}%`,
+                background:pos?"#4d96ff":"#ff6b6b",borderRadius:2}}/>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
+  const [tab,setTab]         = useState("leaderboard");
+  const [token,setToken]     = useState(()=>localStorage.getItem("mlb_token")||"");
+  const [connStatus,setConnStatus] = useState(null);
+  const [connMsg,setConnMsg]       = useState("");
+
+  // Leaderboard
+  const [date,setDate]       = useState(TODAY);
+  const [daysBack,setDaysBack]= useState("90");
+  const [topN,setTopN]       = useState("50");
+  const [loading,setLoading] = useState(false);
+  const [error,setError]     = useState(null);
+  const [lbData,setLbData]   = useState(null);
+  const [selected,setSelected]= useState(null);
+  const [selectedGames,setSelectedGames] = useState(new Set()); // empty = all games
+  const [search,setSearch]   = useState("");
+  const [gradeFilter,setGradeFilter]= useState("ALL");
+
+  // Single predict
+  const [batterName,setBatterName]   = useState("");
+  const [batterId,setBatterId]       = useState("");
+  const [pitcherName,setPitcherName] = useState("");
+  const [pitcherId,setPitcherId]     = useState("");
+  const [park,setPark]     = useState("NYY");
+  const [wind,setWind]     = useState("0");
+  const [singleResult,setSingleResult] = useState(null);
+  const [singleLoading,setSingleLoading]= useState(false);
+  const [singleError,setSingleError]   = useState(null);
+
+  // Save token to localStorage
+  useEffect(()=>{ if(token) localStorage.setItem("mlb_token",token); },[token]);
+
+  const runLeaderboard = useCallback(async()=>{
+    if(!token){setError("Set your secret token in the Config tab.");return;}
+    setLoading(true);setError(null);setSelected(null);setLbData(null);
+    try {
+      // Step 1: get schedule
+      const sched = await apiFetch(`/schedule?date=${date}`,token,{method:"GET"});
+      const allGames = sched.games||[];
+      if(!allGames.length){setError("No games found for this date.");setLoading(false);return;}
+
+      // Step 2: determine which games to score
+      // selectedGames empty = run all; otherwise run only selected
+      const gamesToScore = selectedGames.size>0
+        ? allGames.filter(g=>selectedGames.has(g.game_pk))
+        : allGames;
+
+      // Step 3: chunk into groups of 3 to stay under API GW 29s limit
+      const CHUNK = 3;
+      let allResults = [];
+      for(let i=0;i<gamesToScore.length;i+=CHUNK){
+        const chunk = gamesToScore.slice(i,i+CHUNK);
+        const pks   = chunk.map(g=>g.game_pk);
+        setConnMsg(`Scoring games ${i+1}–${Math.min(i+CHUNK,gamesToScore.length)} of ${gamesToScore.length}…`);
+        try {
+          const data = await apiFetch("/leaderboard",token,{
+            method:"POST",
+            body:JSON.stringify({date,days_back:parseInt(daysBack),
+              top_n:parseInt(topN),game_pks:pks}),
+          });
+          allResults = allResults.concat(data.leaderboard||[]);
+        } catch(e){
+          console.warn(`Chunk ${i} failed:`,e.message);
+        }
+      }
+      // Sort and rank
+      allResults.sort((a,b)=>b.prediction.hr_probability-a.prediction.hr_probability);
+      allResults = allResults.slice(0,parseInt(topN));
+      allResults.forEach((r,i)=>r.rank=i+1);
+      setLbData({leaderboard:allResults,games:allGames,
+        games_found:gamesToScore.length,batters_scored:allResults.length,
+        generated_at:new Date().toISOString()});
+      setConnMsg("");
+    } catch(e){setError(e.message);}
+    finally{setLoading(false);}
+  },[token,date,daysBack,topN,selectedGames]);
+
+  const runPredict = useCallback(async()=>{
+    if(!token){setSingleError("Set token in Config first.");return;}
+    setSingleLoading(true);setSingleError(null);setSingleResult(null);
+    try {
+      const data = await apiFetch("/predict",token,{
+        method:"POST",
+        body:JSON.stringify({batter_id:parseInt(batterId),
+          starter_pitcher_id:parseInt(pitcherId),
+          ballpark:park,wind_mph_out:parseFloat(wind)||0,
+          days_back:parseInt(daysBack)}),
+      });
+      setSingleResult(data);
+    } catch(e){setSingleError(e.message);}
+    finally{setSingleLoading(false);}
+  },[token,batterId,pitcherId,park,wind,daysBack]);
+
+  const toggleGame = pk => setSelectedGames(prev=>{
+    const n=new Set(prev); n.has(pk)?n.delete(pk):n.add(pk); return n;
+  });
+
+  const filtered = useMemo(()=>{
+    if(!lbData?.leaderboard) return [];
+    return lbData.leaderboard.filter(row=>{
+      if(gradeFilter!=="ALL"&&row.prediction?.grade!==gradeFilter) return false;
+      if(search&&!row.batter_name?.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  },[lbData,gradeFilter,search]);
+
+  const BTN = {background:"linear-gradient(135deg,#0f2a45,#1a3a5c)",
+    border:"1px solid #2e6aad",color:"#e8f4f8",borderRadius:7,
+    padding:"10px 20px",fontSize:11,letterSpacing:3};
+
+  return (
+    <div style={{minHeight:"100vh",background:"#05090f"}}>
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#080f1a,#0d1e33)",
+        borderBottom:"1px solid #1e2a3a",padding:"14px 20px",
+        display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{fontSize:22,fontWeight:700}}>⚾ <span style={{color:"#ff9f1c"}}>HR</span>INTEL</div>
+        <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:3,marginTop:2}}>MLB HOME RUN LEADERBOARD</div>
+        <div style={{marginLeft:"auto",display:"flex",gap:2}}>
+          {[["leaderboard","LEADERBOARD"],["predict","SINGLE"],["config","CONFIG"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)} style={{
+              background:tab===t?"#1a3a5c":"transparent",
+              border:`1px solid ${tab===t?"#2e5a8a":"transparent"}`,
+              color:tab===t?"#e8f4f8":"#4a7fa5",padding:"5px 12px",borderRadius:5,fontSize:9,letterSpacing:2}}>
+              {l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Config */}
+      {tab==="config"&&(
+        <div style={{maxWidth:520,margin:"28px auto",padding:"0 20px"}}>
+          <div style={{fontSize:11,color:"#4a7fa5",letterSpacing:3,marginBottom:18}}>CONFIGURATION</div>
+          <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5,textTransform:"uppercase"}}>SECRET TOKEN</label>
+          <input type="password" value={token}
+            onChange={e=>{setToken(e.target.value);setConnStatus(null);}}
+            placeholder="Your SECRET_TOKEN value"/>
+          <button onClick={async()=>{
+            setConnStatus("testing"); setConnMsg("Connecting...");
+            try {
+              const d = await apiFetch("/health",token,{method:"GET"});
+              setConnStatus("ok"); setConnMsg(`Connected — Season ${d.season}`);
+            } catch(e) {
+              setConnStatus("error"); setConnMsg(e.message);
+            }
+          }} style={{...BTN,marginTop:12,width:"100%",opacity:token?1:0.4}}>
+            {connStatus==="testing"?"⟳ TESTING…":"TEST CONNECTION"}
+          </button>
+          {connStatus==="ok"&&(
+            <div style={{marginTop:10,padding:"10px 14px",background:"#0a2a1a",
+              border:"1px solid #2a6a3a",borderRadius:8,fontSize:11,color:"#6bcb77"}}>✅ {connMsg}</div>
+          )}
+          {connStatus==="error"&&(
+            <div style={{marginTop:10,padding:"10px 14px",background:"#1a0000",
+              border:"1px solid #ff3b3b",borderRadius:8,fontSize:11,color:"#ff6b6b",wordBreak:"break-all"}}>❌ {connMsg}</div>
+          )}
+          <div style={{marginTop:14,padding:"10px 14px",background:"#0a1628",
+            border:"1px solid #1e3a5f",borderRadius:8,fontSize:9,color:"#4a7fa5",lineHeight:1.8}}>
+            Token is sent as <span style={{color:"#ff9f1c"}}>x-token</span> header.<br/>
+            Must match <span style={{color:"#ff9f1c"}}>SECRET_TOKEN</span> env var on your Lambda.<br/>
+            Token is saved to localStorage so you only need to enter it once.
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard */}
+      {tab==="leaderboard"&&(
+        <div style={{padding:"16px 20px"}}>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
+            <div style={{flex:"0 0 140px"}}>
+              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>DATE</label>
+              <input type="date" value={date} onChange={e=>{setDate(e.target.value);setSelectedGames(new Set());setLbData(null);}}/>
+            </div>
+            <div style={{flex:"0 0 90px"}}>
+              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>DAYS BACK</label>
+              <input type="number" value={daysBack} onChange={e=>setDaysBack(e.target.value)} min="14" max="180"/>
+            </div>
+            <div style={{flex:"0 0 70px"}}>
+              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>TOP N</label>
+              <input type="number" value={topN} onChange={e=>setTopN(e.target.value)} min="10" max="100"/>
+            </div>
+            <button onClick={runLeaderboard} disabled={loading||!token}
+              style={{...BTN,padding:"9px 24px",fontSize:12,letterSpacing:3,alignSelf:"flex-end",
+                opacity:(!token||loading)?0.4:1}}>
+              {loading?(connMsg||"⟳ SCANNING…"):"▶ RUN"}
+            </button>
+            {lbData&&<div style={{alignSelf:"flex-end",fontSize:9,color:"#4a7fa5"}}>
+              {lbData.games_found} games · {lbData.batters_scored} batters · {new Date(lbData.generated_at).toLocaleTimeString()}
+            </div>}
+          </div>
+
+          {!token&&<div style={{padding:"10px 14px",background:"#1a0d00",border:"1px solid #ff6b35",
+            borderRadius:7,fontSize:10,color:"#ff9f1c",marginBottom:12}}>
+            ⚠ Set your secret token in the Config tab first.</div>}
+          {error&&<div style={{padding:"10px 14px",background:"#1a0000",border:"1px solid #ff3b3b",
+            borderRadius:7,fontSize:10,color:"#ff6b6b",marginBottom:12}}>❌ {error}</div>}
+
+          {lbData&&(
+            <div style={{display:"grid",gridTemplateColumns:selected?"1fr 320px":"1fr",gap:16,alignItems:"start"}}>
+              <div>
+                {/* Game chips — empty selection = all games */}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                  {(lbData.games||[]).map(g=>{
+                    const active=selectedGames.has(g.game_pk);
+                    return <button key={g.game_pk} onClick={()=>toggleGame(g.game_pk)} style={{
+                      background:active?"#1a3a5c":"#0a1628",
+                      border:`1px solid ${active?"#2e6aad":"#1e2a3a"}`,
+                      color:active?"#e8f4f8":"#4a7fa5",borderRadius:6,
+                      padding:"4px 10px",fontSize:9,letterSpacing:1,
+                      boxShadow:active?"0 0 6px #2e6aad44":"none"}}>
+                      {g.away_abbr}@{g.home_abbr} · {g.park_code}
+                      {active&&<span style={{marginLeft:5,color:"#ff9f1c"}}>✓</span>}
+                    </button>;
+                  })}
+                </div>
+                <div style={{fontSize:9,color:"#4a7fa5",marginBottom:10}}>
+                  {selectedGames.size===0
+                    ? "No games selected — ▶ RUN will score all matchups"
+                    : `${selectedGames.size} game${selectedGames.size>1?"s":""} selected — ▶ RUN will score selected only · `}
+                  {selectedGames.size>0&&
+                    <span onClick={()=>setSelectedGames(new Set())}
+                      style={{color:"#ff6b35",cursor:"pointer",textDecoration:"underline"}}>
+                      clear selection
+                    </span>}
+                </div>
+                {/* Filters */}
+                <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+                  <input value={search} onChange={e=>setSearch(e.target.value)}
+                    placeholder="Search batter…" style={{width:160,padding:"5px 10px",fontSize:10}}/>
+                  <select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}
+                    style={{width:80,padding:"5px 8px",fontSize:10}}>
+                    {["ALL","A+","A","B+","B","C+","C","D"].map(g=><option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <span style={{fontSize:9,color:"#4a7fa5",marginLeft:"auto"}}>{filtered.length} results</span>
+                </div>
+                {/* Table header */}
+                <div style={{display:"grid",gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 60px",
+                  gap:6,padding:"6px 12px",borderBottom:"1px solid #1e2a3a",
+                  fontSize:8,color:"#4a7fa5",letterSpacing:2}}>
+                  <div style={{textAlign:"center"}}>#</div>
+                  <div>BATTER / MATCHUP</div>
+                  <div style={{textAlign:"center"}}>GRADE</div>
+                  <div style={{textAlign:"center"}}>EV 90TH</div>
+                  <div style={{textAlign:"center"}}>BARREL%</div>
+                  <div style={{textAlign:"center"}}>PARK</div>
+                  <div style={{textAlign:"center"}}>90% CI</div>
+                </div>
+                <div style={{background:"#080f1a",borderRadius:8,overflow:"hidden",border:"1px solid #1e2a3a"}}>
+                  {filtered.length===0
+                    ?<div style={{padding:32,textAlign:"center",color:"#4a7fa5",fontSize:11}}>
+                      {lbData.leaderboard.length===0?"No results — check probable starters are posted for this date.":"No batters match filters."}</div>
+                    :filtered.map(row=>(
+                      <LeaderboardRow key={`${row.batter_id}-${row.game_pk}`} row={row}
+                        selected={selected?.batter_id===row.batter_id&&selected?.game_pk===row.game_pk}
+                        onClick={()=>setSelected(p=>p?.batter_id===row.batter_id&&p?.game_pk===row.game_pk?null:row)}/>
+                    ))}
+                </div>
+              </div>
+              {selected&&<DetailPanel row={selected} onClose={()=>setSelected(null)}/>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Single Predict */}
+      {tab==="predict"&&(
+        <div style={{maxWidth:860,margin:"20px auto",padding:"0 20px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14,marginBottom:16}}>
+            <PlayerSearch label="BATTER" role="batter" token={token}
+              value={batterName}
+              onChange={(name,id)=>{setBatterName(name);if(id)setBatterId(String(id));}}/>
+            <PlayerSearch label="STARTING PITCHER" role="pitcher" token={token}
+              value={pitcherName}
+              onChange={(name,id)=>{setPitcherName(name);if(id)setPitcherId(String(id));}}/>
+            <div>
+              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>BALLPARK</label>
+              <select value={park} onChange={e=>setPark(e.target.value)}>
+                {PARKS.map(p=><option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>WIND MPH OUT (+) / IN (-)</label>
+              <input type="number" value={wind} onChange={e=>setWind(e.target.value)}/>
+              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5,marginTop:10}}>STATCAST DAYS</label>
+              <input type="number" value={daysBack} onChange={e=>setDaysBack(e.target.value)} min="14" max="180"/>
+            </div>
+          </div>
+          <button onClick={runPredict}
+            disabled={singleLoading||!batterId||!pitcherId||!token}
+            style={{...BTN,width:"100%",fontSize:12,letterSpacing:4,padding:14,
+              opacity:(!token||singleLoading||!batterId||!pitcherId)?0.4:1}}>
+            {singleLoading?"⟳ FETCHING STATCAST…":"▶ PREDICT"}
+          </button>
+          {singleError&&<div style={{marginTop:12,padding:"10px 14px",background:"#1a0000",
+            border:"1px solid #ff3b3b",borderRadius:7,fontSize:10,color:"#ff6b6b"}}>❌ {singleError}</div>}
+          {singleResult&&(
+            <div style={{marginTop:20}}>
+              <DetailPanel row={{...singleResult,
+                batter_name:batterName||String(singleResult.batter_id),
+                pitcher_name:pitcherName||String(singleResult.pitcher_id),
+                batter_team:"",pitcher_team:"",venue:park,batting_order:null,position:null}}
+                onClose={()=>setSingleResult(null)}/>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
