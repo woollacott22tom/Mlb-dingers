@@ -24,135 +24,122 @@
 <script type="text/babel">
 const {useState,useCallback,useEffect,useRef,useMemo} = React;
 
-// ── Config ────────────────────────────────────────────────────────────────────
-const LAMBDA      = "https://z1yqu5bt81.execute-api.us-east-2.amazonaws.com";
-const TODAY     = new Date().toISOString().slice(0,10);
-const GRADE_CLR = {"A+":"#ff3b3b","A":"#ff6b35","B+":"#ff9f1c","B":"#ffbf47","C+":"#6bcb77","C":"#4d96ff","D":"#7a9ab5"};
-const PARKS     = ["COL","CIN","PHI","HOU","MIL","ARI","BAL","BOS","TEX","NYY","ATL","CHC","TOR","DET","MIN","STL","LAD","CLE","WSH","MIA","SEA","SFG","SDP","OAK","NYM","LAA","CHW","PIT","KCR","TBR"];
+const LAMBDA   = "https://z1yqu5bt81.execute-api.us-east-2.amazonaws.com";
+const TODAY    = new Date().toISOString().slice(0,10);
+const GRADE_CLR= {"A+":"#ff3b3b","A":"#ff6b35","B+":"#ff9f1c","B":"#ffbf47","C+":"#6bcb77","C":"#4d96ff","D":"#7a9ab5"};
+const GRADE_ORDER = ["A+","A","B+","B","C+","C","D"];
+const PARK_NAMES = {
+  COL:"Coors Field",CIN:"Great American Ball Park",PHI:"Citizens Bank Park",
+  HOU:"Minute Maid Park",MIL:"American Family Field",ARI:"Chase Field",
+  BAL:"Camden Yards",BOS:"Fenway Park",TEX:"Globe Life Field",NYY:"Yankee Stadium",
+  ATL:"Truist Park",CHC:"Wrigley Field",TOR:"Rogers Centre",DET:"Comerica Park",
+  MIN:"Target Field",STL:"Busch Stadium",LAD:"Dodger Stadium",CLE:"Progressive Field",
+  WSH:"Nationals Park",MIA:"loanDepot park",SEA:"T-Mobile Park",SFG:"Oracle Park",
+  SDP:"Petco Park",OAK:"Oakland Coliseum",NYM:"Citi Field",LAA:"Angel Stadium",
+  CHW:"Guaranteed Rate Field",PIT:"PNC Park",KCR:"Kauffman Stadium",TBR:"Tropicana Field",
+};
+const PARK_FACTORS = {
+  COL:1.24,CIN:1.18,PHI:1.16,HOU:1.14,MIL:1.12,ARI:1.10,BAL:1.09,BOS:1.08,
+  TEX:1.07,NYY:1.06,ATL:1.05,CHC:1.04,TOR:1.03,DET:1.02,MIN:1.01,STL:1.00,
+  LAD:0.99,CLE:0.98,WSH:0.97,MIA:0.96,SEA:0.95,SFG:0.94,SDP:0.93,OAK:0.92,
+  NYM:0.91,LAA:0.90,CHW:0.89,PIT:0.88,KCR:0.87,TBR:0.86,
+};
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
 async function apiFetch(path, token, options={}) {
   const base = LAMBDA.replace(/\/+$/,"");
   const r = await fetch(`${base}${path}`, {
     ...options,
-    headers: {"Content-Type":"application/json","x-token":token, ...(options.headers||{})},
+    headers:{"Content-Type":"application/json","x-token":token,...(options.headers||{})},
   });
   const txt = await r.text();
   if(!r.ok) throw new Error(`HTTP ${r.status}: ${txt.slice(0,200)}`);
   return JSON.parse(txt);
 }
 
-// ── PlayerSearch ──────────────────────────────────────────────────────────────
-function PlayerSearch({label,role,token,onSelect,value,onChange}) {
-  const [results,setResults] = useState([]);
-  const [open,setOpen]       = useState(false);
-  const [busy,setBusy]       = useState(false);
-  const debRef = useRef(null);
-  const wrapRef= useRef(null);
-  useEffect(()=>{
-    const h=e=>{if(wrapRef.current&&!wrapRef.current.contains(e.target))setOpen(false)};
-    document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
-  },[]);
-  const search = v => {
-    if(!token||v.length<2){setResults([]);setOpen(false);return;}
-    setBusy(true);
-    apiFetch(`/player/search?q=${encodeURIComponent(v)}&role=${role}`,token,{method:"GET"})
-      .then(d=>{setResults(d.players||[]);setOpen(true);})
-      .catch(()=>setResults([]))
-      .finally(()=>setBusy(false));
-  };
-  const handleChange = e => {
-    onChange(e.target.value,"");
-    clearTimeout(debRef.current);
-    debRef.current = setTimeout(()=>search(e.target.value),400);
-  };
+// ── Sort helper ───────────────────────────────────────────────────────────────
+function sortRows(rows, field, dir) {
+  const mul = dir==="asc" ? 1 : -1;
+  return [...rows].sort((a,b)=>{
+    let av, bv;
+    const af=a.batter_features||{}, bf2=b.batter_features||{};
+    switch(field){
+      case "hr_probability": av=a.prediction?.hr_probability; bv=b.prediction?.hr_probability; break;
+      case "grade":
+        av=GRADE_ORDER.indexOf(a.prediction?.grade); bv=GRADE_ORDER.indexOf(b.prediction?.grade);
+        return mul*(av-bv); // lower index = better grade
+      case "ev_90th":    av=af.ev_90th;       bv=bf2.ev_90th;       break;
+      case "barrel_rate":av=af.barrel_rate;   bv=bf2.barrel_rate;   break;
+      case "park":       av=a.park_factor;    bv=b.park_factor;     break;
+      case "hard_hit":   av=af.hard_hit_rate; bv=bf2.hard_hit_rate; break;
+      case "hr_count":   av=af.hr_count;      bv=bf2.hr_count;      break;
+      default:           av=a.prediction?.hr_probability; bv=b.prediction?.hr_probability;
+    }
+    return mul*((bv??-999)-(av??-999));
+  });
+}
+
+// ── SortHeader ────────────────────────────────────────────────────────────────
+function SortHeader({label, field, sortField, sortDir, onSort, style={}}) {
+  const active = sortField===field;
   return (
-    <div ref={wrapRef} style={{position:"relative",marginBottom:12}}>
-      <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>
-      <div style={{position:"relative"}}>
-        <input value={value} onChange={handleChange} onFocus={()=>results.length>0&&setOpen(true)}
-          placeholder={token?"Type player name…":"Set token in Config first"}/>
-        {busy&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"#4a7fa5"}}>⟳</span>}
-      </div>
-      {open&&results.length>0&&(
-        <div style={{position:"absolute",zIndex:999,top:"100%",left:0,right:0,background:"#0d1f33",
-          border:"1px solid #2e5a8a",borderRadius:8,marginTop:4,maxHeight:200,overflowY:"auto",
-          boxShadow:"0 8px 32px rgba(0,0,0,0.8)"}}>
-          {results.map(p=>(
-            <div key={p.mlbam_id}
-              onClick={()=>{onChange(p.name,p.mlbam_id);setOpen(false);}}
-              style={{padding:"8px 14px",cursor:"pointer",borderBottom:"1px solid #1e2a3a",
-                display:"flex",justifyContent:"space-between",alignItems:"center"}}
-              onMouseEnter={e=>e.currentTarget.style.background="#1a3a5c"}
-              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-              <div>
-                <span style={{color:"#e8f4f8",fontSize:12}}>{p.name}</span>
-                <span style={{marginLeft:8,fontSize:9,padding:"1px 6px",borderRadius:4,
-                  background:p.active?"#0a2a1a":"#1a1a1a",color:p.active?"#6bcb77":"#4a7fa5",
-                  border:`1px solid ${p.active?"#2a6a3a":"#2a2a3a"}`}}>
-                  {p.active?"ACTIVE":(p.mlb_last||"RETIRED")}</span>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:9,color:"#ff9f1c"}}>{p.mlbam_id}</div>
-                <div style={{fontSize:9,color:"#4a7fa5"}}>{p.position}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div onClick={()=>onSort(field)}
+      style={{textAlign:"center",cursor:"pointer",userSelect:"none",
+        color:active?"#ff9f1c":"#4a7fa5",
+        ...style}}>
+      {label}{active?(sortDir==="desc"?" ↓":" ↑"):""}
     </div>
   );
 }
 
 // ── LeaderboardRow ────────────────────────────────────────────────────────────
-function LeaderboardRow({row,selected,onClick}) {
+function LeaderboardRow({row, rank, selected, onClick}) {
   const pred=row.prediction; const bf=row.batter_features||{};
-  const c=GRADE_CLR[pred.grade]||"#7a9ab5"; const isTop=row.rank<=3;
+  const c=GRADE_CLR[pred.grade]||"#7a9ab5"; const isTop=rank<=3;
   return (
     <div onClick={onClick} style={{display:"grid",
-      gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 80px",
-      alignItems:"center",gap:6,padding:"10px 12px",cursor:"pointer",
+      gridTemplateColumns:"36px 1fr 80px 65px 65px 65px 55px",
+      alignItems:"center",gap:4,padding:"9px 10px",cursor:"pointer",
       borderBottom:"1px solid #0d1b2a",
       background:selected?"#0f2540":isTop?"#0a1e35":"transparent",
       borderLeft:`3px solid ${selected?c:isTop?c+"88":"transparent"}`}}
       onMouseEnter={e=>{if(!selected)e.currentTarget.style.background="#0a1628"}}
       onMouseLeave={e=>{if(!selected)e.currentTarget.style.background=isTop?"#0a1e35":"transparent"}}>
-      <div style={{fontSize:isTop?15:12,fontWeight:700,color:isTop?c:"#4a7fa5",textAlign:"center"}}>
-        {row.rank<=3?["🥇","🥈","🥉"][row.rank-1]:row.rank}
+      <div style={{fontSize:isTop?14:11,fontWeight:700,color:isTop?c:"#4a7fa5",textAlign:"center"}}>
+        {rank<=3?["🥇","🥈","🥉"][rank-1]:rank}
       </div>
       <div>
-        <div style={{fontSize:12,color:"#e8f4f8",fontWeight:600}}>{row.batter_name}</div>
-        <div style={{fontSize:9,color:"#4a7fa5",marginTop:1}}>
+        <div style={{fontSize:11,color:"#e8f4f8",fontWeight:600}}>{row.batter_name}</div>
+        <div style={{fontSize:8,color:"#4a7fa5",marginTop:1}}>
           {row.batter_team} vs {row.pitcher_name} · {row.park_code}{row.batting_order?` · #${row.batting_order}`:""}
         </div>
       </div>
       <div style={{textAlign:"center"}}>
         <div style={{display:"inline-block",background:c+"22",border:`1px solid ${c}`,
-          color:c,borderRadius:5,padding:"1px 8px",fontSize:13,fontWeight:700}}>{pred.grade}</div>
-        <div style={{fontSize:11,color:"#e8f4f8",marginTop:2}}>{pred.hr_probability_pct?.toFixed(1)}%</div>
+          color:c,borderRadius:4,padding:"1px 6px",fontSize:12,fontWeight:700}}>{pred.grade}</div>
+        <div style={{fontSize:10,color:"#e8f4f8",marginTop:1}}>{pred.hr_probability_pct?.toFixed(1)}%</div>
       </div>
       <div style={{textAlign:"center"}}>
-        <div style={{fontSize:11,color:"#e8f4f8"}}>{bf.ev_90th??"-"}</div>
-        <div style={{fontSize:8,color:"#4a7fa5"}}>EV 90th</div>
+        <div style={{fontSize:10,color:"#e8f4f8"}}>{bf.ev_90th??"-"}</div>
+        <div style={{fontSize:7,color:"#4a7fa5"}}>EV 90th</div>
       </div>
       <div style={{textAlign:"center"}}>
-        <div style={{fontSize:11,color:"#e8f4f8"}}>{bf.barrel_rate!=null?(bf.barrel_rate*100).toFixed(1)+"%":"-"}</div>
-        <div style={{fontSize:8,color:"#4a7fa5"}}>Barrel%</div>
+        <div style={{fontSize:10,color:"#e8f4f8"}}>{bf.barrel_rate!=null?(bf.barrel_rate*100).toFixed(1)+"%":"-"}</div>
+        <div style={{fontSize:7,color:"#4a7fa5"}}>Barrel%</div>
       </div>
       <div style={{textAlign:"center"}}>
-        <div style={{fontSize:11,color:row.park_factor>1?"#ff9f1c":row.park_factor<0.95?"#6bcb77":"#e8f4f8"}}>
-          {row.park_factor?.toFixed(2)}x</div>
-        <div style={{fontSize:8,color:"#4a7fa5"}}>Park</div>
-      </div>
-      <div style={{textAlign:"center"}}>
-        <div style={{fontSize:11,color:
-          bf.hard_hit_rate>=0.55?"#ff3b3b":
-          bf.hard_hit_rate>=0.50?"#ff9f1c":
-          bf.hard_hit_rate>=0.45?"#ffbf47":"#e8f4f8",
+        <div style={{fontSize:10,
+          color:bf.hard_hit_rate>=0.55?"#ff3b3b":bf.hard_hit_rate>=0.50?"#ff9f1c":bf.hard_hit_rate>=0.45?"#ffbf47":"#e8f4f8",
           fontWeight:bf.hard_hit_rate>=0.50?700:400}}>
           {bf.hard_hit_rate!=null?(bf.hard_hit_rate*100).toFixed(1)+"%":"-"}
         </div>
-        <div style={{fontSize:8,color:"#4a7fa5"}}>Hard Hit%</div>
+        <div style={{fontSize:7,color:"#4a7fa5"}}>Hard Hit%</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:13,fontWeight:700,
+          color:bf.hr_count>=10?"#ff3b3b":bf.hr_count>=5?"#ff9f1c":bf.hr_count>=1?"#ffbf47":"#7a9ab5"}}>
+          {bf.hr_count??"-"}
+        </div>
+        <div style={{fontSize:7,color:"#4a7fa5"}}>HRs</div>
       </div>
     </div>
   );
@@ -183,12 +170,12 @@ function DetailPanel({row,onClose}) {
         <div style={{fontSize:10,color:"#4a7fa5",marginTop:4}}>
           90% CI: {(pred.ci_low*100).toFixed(1)}% – {(pred.ci_high*100).toFixed(1)}%</div>
       </div>
-      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>BATTER ({bf.pa_sample} PA)</div>
+      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>BATTER ({bf.pa_sample} PA / {bf.hr_count??0} HRs)</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
         {[["EV Mean",bf.ev_mean,"mph"],["EV 90th",bf.ev_90th,"mph"],["Launch Ang",bf.launch_angle,"°"],
           ["Barrel%",bf.barrel_rate!=null?(bf.barrel_rate*100).toFixed(1)+"%":null,""],
           ["Hard Hit%",bf.hard_hit_rate!=null?(bf.hard_hit_rate*100).toFixed(1)+"%":null,""],
-          ["HR Count",bf.hr_count,""]].map(([l,v,u])=>(
+          ["HRs",bf.hr_count,""]].map(([l,v,u])=>(
           <div key={l} style={{background:"#0d1b2a",borderRadius:7,padding:"8px 10px"}}>
             <div style={{fontSize:8,color:"#4a7fa5",marginBottom:3}}>{l}</div>
             <div style={{fontSize:14,fontWeight:600,color:"#e8f4f8"}}>{v??"-"}{v!=null&&u?<span style={{fontSize:8,color:"#7a9ab5",marginLeft:2}}>{u}</span>:null}</div>
@@ -216,21 +203,15 @@ function DetailPanel({row,onClose}) {
       )}
       {row.weather&&(row.weather.temp_f||row.weather.wind_mph_out)&&(
         <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
-          padding:"10px 14px",marginBottom:12,fontSize:10,color:"#7a9ab5",
-          display:"flex",gap:16,flexWrap:"wrap"}}>
-          {row.weather.temp_f!=null&&(
-            <span>🌡 <strong style={{color:"#e8f4f8"}}>{row.weather.temp_f}°F</strong></span>
-          )}
+          padding:"10px 14px",marginBottom:12,fontSize:10,color:"#7a9ab5",display:"flex",gap:16,flexWrap:"wrap"}}>
+          {row.weather.temp_f!=null&&<span>🌡 <strong style={{color:"#e8f4f8"}}>{row.weather.temp_f}°F</strong></span>}
           {row.weather.wind_mph_out!=null&&(
             <span>{row.weather.wind_mph_out>=0?"💨 OUT":"💨 IN"}{" "}
               <strong style={{color:row.weather.wind_mph_out>0?"#6bcb77":row.weather.wind_mph_out<0?"#ff6b6b":"#e8f4f8"}}>
-                {Math.abs(row.weather.wind_mph_out)} mph
-              </strong>
+                {Math.abs(row.weather.wind_mph_out)} mph</strong>
             </span>
           )}
-          {row.weather.humidity_pct!=null&&(
-            <span>💧 <strong style={{color:"#e8f4f8"}}>{row.weather.humidity_pct}%</strong> humidity</span>
-          )}
+          {row.weather.humidity_pct!=null&&<span>💧 <strong style={{color:"#e8f4f8"}}>{row.weather.humidity_pct}%</strong> humidity</span>}
         </div>
       )}
       <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:10}}>MODEL FACTORS</div>
@@ -253,76 +234,183 @@ function DetailPanel({row,onClose}) {
   );
 }
 
+// ── Parks Tab ─────────────────────────────────────────────────────────────────
+function ParksTab({parksData}) {
+  const [sortF,setSortF] = useState("factor");
+  const [sortD,setSortD] = useState("desc");
+  const parks = parksData;
+
+  const sorted = useMemo(()=>{
+    if(!parks) return [];
+    const mul = sortD==="desc"?-1:1;
+    return [...parks].sort((a,b)=>{
+      if(sortF==="factor")   return mul*(a.factor-b.factor);
+      if(sortF==="temp")     return mul*((a.weather?.temp_f??-999)-(b.weather?.temp_f??-999));
+      if(sortF==="wind")     return mul*((a.weather?.wind_mph_out??-999)-(b.weather?.wind_mph_out??-999));
+      if(sortF==="humidity") return mul*((a.weather?.humidity_pct??-999)-(b.weather?.humidity_pct??-999));
+      if(sortF==="name")     return mul*a.name.localeCompare(b.name);
+      return 0;
+    });
+  },[parks,sortF,sortD]);
+
+  const onSort = f => {
+    if(sortF===f) setSortD(d=>d==="desc"?"asc":"desc");
+    else{setSortF(f);setSortD("desc");}
+  };
+
+  const SH = ({label,field,style={}}) => (
+    <div onClick={()=>onSort(field)}
+      style={{cursor:"pointer",userSelect:"none",fontSize:8,letterSpacing:2,
+        color:sortF===field?"#ff9f1c":"#4a7fa5",...style}}>
+      {label}{sortF===field?(sortD==="desc"?" ↓":" ↑"):""}
+    </div>
+  );
+
+  return (
+    <div style={{padding:"16px 20px"}}>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:"#4a7fa5",letterSpacing:3}}>PARK CONDITIONS</div>
+        {!parks&&<div style={{marginTop:12,fontSize:10,color:"#4a7fa5"}}>
+          Run the leaderboard first to populate park conditions.</div>}
+      </div>
+      {parks&&(
+        <>
+          {/* Header */}
+          <div style={{display:"grid",
+            gridTemplateColumns:"110px 1fr 80px 70px 80px 70px 60px",
+            gap:6,padding:"6px 12px",borderBottom:"1px solid #1e2a3a"}}>
+            <SH label="PARK" field="name" style={{textAlign:"left"}}/>
+            <SH label="TODAY'S GAME" field="game" style={{textAlign:"left",fontSize:8,letterSpacing:2,cursor:"default",color:"#4a7fa5"}}/>
+            <SH label="HR FACTOR" field="factor" style={{textAlign:"center"}}/>
+            <SH label="TEMP °F" field="temp" style={{textAlign:"center"}}/>
+            <SH label="WIND MPH" field="wind" style={{textAlign:"center"}}/>
+            <SH label="HUMIDITY" field="humidity" style={{textAlign:"center"}}/>
+            <div style={{fontSize:8,letterSpacing:2,color:"#4a7fa5",textAlign:"center"}}>PLAYING</div>
+          </div>
+          <div style={{background:"#080f1a",borderRadius:8,overflow:"hidden",border:"1px solid #1e2a3a"}}>
+            {sorted.map((p,i)=>{
+              const w = p.weather;
+              const fc = p.factor>=1.10?"#ff3b3b":p.factor>=1.05?"#ff9f1c":p.factor>=1.00?"#ffbf47":p.factor>=0.95?"#e8f4f8":"#6bcb77";
+              const wc = w?.wind_mph_out>5?"#6bcb77":w?.wind_mph_out<-5?"#ff6b6b":"#e8f4f8";
+              const tc = w?.temp_f>=85?"#ff6b35":w?.temp_f>=70?"#ffbf47":w?.temp_f>=55?"#e8f4f8":"#4d96ff";
+              return (
+                <div key={p.code} style={{display:"grid",
+                  gridTemplateColumns:"110px 1fr 80px 70px 80px 70px 60px",
+                  gap:6,padding:"9px 12px",borderBottom:"1px solid #0d1b2a",
+                  background:i%2===0?"transparent":"#070d14",
+                  opacity:p.playing?1:0.45}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#e8f4f8"}}>{p.code}</div>
+                    <div style={{fontSize:8,color:"#4a7fa5"}}>{p.name.split(" ").slice(0,2).join(" ")}</div>
+                  </div>
+                  <div style={{fontSize:10,color:p.playing?"#e8f4f8":"#4a7fa5",alignSelf:"center"}}>
+                    {p.game||<span style={{fontSize:9,color:"#2a3a4a"}}>no game</span>}
+                    {p.game_time&&<span style={{fontSize:8,color:"#4a7fa5",marginLeft:6}}>
+                      {new Date(p.game_time).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+                    </span>}
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:fc}}>{p.factor.toFixed(2)}x</div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:12,color:w?.temp_f!=null?tc:"#2a3a4a",fontWeight:w?.temp_f!=null?600:400}}>
+                      {w?.temp_f!=null?`${w.temp_f}°`:"-"}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    {w?.wind_mph_out!=null?(
+                      <div style={{fontSize:11,color:wc,fontWeight:Math.abs(w.wind_mph_out)>5?700:400}}>
+                        {w.wind_mph_out>=0?"↑ OUT":"↓ IN"} {Math.abs(w.wind_mph_out)}
+                      </div>
+                    ):<div style={{fontSize:11,color:"#2a3a4a"}}>-</div>}
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:11,color:w?.humidity_pct!=null?"#e8f4f8":"#2a3a4a"}}>
+                      {w?.humidity_pct!=null?`${w.humidity_pct}%`:"-"}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    {p.playing
+                      ?<span style={{fontSize:9,color:"#6bcb77",fontWeight:700}}>✓</span>
+                      :<span style={{fontSize:9,color:"#2a3a4a"}}>—</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{marginTop:10,fontSize:9,color:"#4a7fa5"}}>
+            {sorted.filter(p=>p.playing).length} parks active today · 
+            Weather shown for active parks only · 
+            Greyed rows = no game today · 
+            Wind: ↑ OUT = HR-friendly · ↓ IN = HR-suppressing
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
-  const [tab,setTab]         = useState("leaderboard");
-  const [token,setToken]     = useState(()=>localStorage.getItem("mlb_token")||"");
+  const [tab,setTab]               = useState("leaderboard");
+  const [token,setToken]           = useState(()=>localStorage.getItem("mlb_token")||"");
   const [connStatus,setConnStatus] = useState(null);
   const [connMsg,setConnMsg]       = useState("");
 
-  // Leaderboard
-  const [date,setDate]       = useState(TODAY);
-  const [daysBack,setDaysBack]= useState("90");
-  const [topN,setTopN]       = useState("50");
-  const [loading,setLoading] = useState(false);
-  const [error,setError]     = useState(null);
-  const [lbData,setLbData]   = useState(null);
-  const [selected,setSelected]= useState(null);
-  const [selectedGames,setSelectedGames] = useState(new Set()); // empty = all games
-  const [search,setSearch]   = useState("");
-  const [gradeFilter,setGradeFilter]= useState("ALL");
-  const [sortField,setSortField]     = useState("hr_probability"); // hr_probability | hard_hit_rate
+  // Leaderboard state
+  const [date,setDate]             = useState(TODAY);
+  const [daysBack,setDaysBack]     = useState("90");
+  const [topN,setTopN]             = useState("50");
+  const [loading,setLoading]       = useState(false);
+  const [error,setError]           = useState(null);
+  const [lbData,setLbData]         = useState(null);
+  const [selected,setSelected]     = useState(null);
+  const [selectedGames,setSelectedGames] = useState(new Set());
+  const [parksData,setParksData]         = useState(null);
+  const [search,setSearch]         = useState("");
+  const [gradeFilter,setGradeFilter]     = useState("ALL");
+  const [sortField,setSortField]   = useState("hr_probability");
+  const [sortDir,setSortDir]       = useState("desc");
 
-  // Single predict
-  const [batterName,setBatterName]   = useState("");
-  const [batterId,setBatterId]       = useState("");
-  const [pitcherName,setPitcherName] = useState("");
-  const [pitcherId,setPitcherId]     = useState("");
-  const [park,setPark]     = useState("NYY");
-  const [wind,setWind]     = useState("0");
-  const [singleResult,setSingleResult] = useState(null);
-  const [singleLoading,setSingleLoading]= useState(false);
-  const [singleError,setSingleError]   = useState(null);
-
-  // Save token to localStorage
   useEffect(()=>{ if(token) localStorage.setItem("mlb_token",token); },[token]);
+
+  const onSort = field => {
+    if(sortField===field) setSortDir(d=>d==="desc"?"asc":"desc");
+    else{ setSortField(field); setSortDir(field==="grade"?"asc":"desc"); }
+  };
 
   const runLeaderboard = useCallback(async()=>{
     if(!token){setError("Set your secret token in the Config tab.");return;}
     setLoading(true);setError(null);setSelected(null);setLbData(null);
     try {
-      // Step 1: get schedule
       const sched = await apiFetch(`/schedule?date=${date}`,token,{method:"GET"});
       const allGames = sched.games||[];
       if(!allGames.length){setError("No games found for this date.");setLoading(false);return;}
-
-      // Step 2: determine which games to score
-      // selectedGames empty = run all; otherwise run only selected
+      // Populate parks from schedule data — free since we already have it
+      const gameMap={};
+      allGames.forEach(g=>{gameMap[g.park_code]={game:`${g.away_abbr}@${g.home_abbr}`,weather:g.weather,game_time:g.game_time};});
+      setParksData(Object.entries(PARK_FACTORS).map(([code,factor])=>({
+        code,name:PARK_NAMES[code]||code,factor,
+        playing:!!gameMap[code],
+        game:gameMap[code]?.game||null,
+        weather:gameMap[code]?.weather||null,
+        game_time:gameMap[code]?.game_time||null,
+      })));
       const gamesToScore = selectedGames.size>0
         ? allGames.filter(g=>selectedGames.has(g.game_pk))
         : allGames;
-
-      // Step 3: chunk into groups of 3 to stay under API GW 29s limit
-      const CHUNK = 3;
-      let allResults = [];
+      const CHUNK=3; let allResults=[];
       for(let i=0;i<gamesToScore.length;i+=CHUNK){
-        const chunk = gamesToScore.slice(i,i+CHUNK);
-        const pks   = chunk.map(g=>g.game_pk);
+        const pks=gamesToScore.slice(i,i+CHUNK).map(g=>g.game_pk);
         setConnMsg(`Scoring games ${i+1}–${Math.min(i+CHUNK,gamesToScore.length)} of ${gamesToScore.length}…`);
         try {
-          const data = await apiFetch("/leaderboard",token,{
-            method:"POST",
-            body:JSON.stringify({date,days_back:parseInt(daysBack),
-              top_n:parseInt(topN),game_pks:pks}),
-          });
-          allResults = allResults.concat(data.leaderboard||[]);
-        } catch(e){
-          console.warn(`Chunk ${i} failed:`,e.message);
-        }
+          const data=await apiFetch("/leaderboard",token,{method:"POST",
+            body:JSON.stringify({date,days_back:parseInt(daysBack),top_n:parseInt(topN),game_pks:pks})});
+          allResults=allResults.concat(data.leaderboard||[]);
+        } catch(e){console.warn(`Chunk ${i} failed:`,e.message);}
       }
-      // Sort and rank
       allResults.sort((a,b)=>b.prediction.hr_probability-a.prediction.hr_probability);
-      allResults = allResults.slice(0,parseInt(topN));
+      allResults=allResults.slice(0,parseInt(topN));
       allResults.forEach((r,i)=>r.rank=i+1);
       setLbData({leaderboard:allResults,games:allGames,
         games_found:gamesToScore.length,batters_scored:allResults.length,
@@ -331,22 +419,6 @@ function App() {
     } catch(e){setError(e.message);}
     finally{setLoading(false);}
   },[token,date,daysBack,topN,selectedGames]);
-
-  const runPredict = useCallback(async()=>{
-    if(!token){setSingleError("Set token in Config first.");return;}
-    setSingleLoading(true);setSingleError(null);setSingleResult(null);
-    try {
-      const data = await apiFetch("/predict",token,{
-        method:"POST",
-        body:JSON.stringify({batter_id:parseInt(batterId),
-          starter_pitcher_id:parseInt(pitcherId),
-          ballpark:park,wind_mph_out:parseFloat(wind)||0,
-          days_back:parseInt(daysBack)}),
-      });
-      setSingleResult(data);
-    } catch(e){setSingleError(e.message);}
-    finally{setSingleLoading(false);}
-  },[token,batterId,pitcherId,park,wind,daysBack]);
 
   const toggleGame = pk => setSelectedGames(prev=>{
     const n=new Set(prev); n.has(pk)?n.delete(pk):n.add(pk); return n;
@@ -359,16 +431,17 @@ function App() {
       if(search&&!row.batter_name?.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-    if(sortField==="hard_hit_rate"){
-      rows = [...rows].sort((a,b)=>
-        (b.batter_features?.hard_hit_rate||0)-(a.batter_features?.hard_hit_rate||0));
-    }
-    return rows;
-  },[lbData,gradeFilter,search,sortField]);
+    return sortRows(rows, sortField, sortDir);
+  },[lbData,gradeFilter,search,sortField,sortDir]);
 
   const BTN = {background:"linear-gradient(135deg,#0f2a45,#1a3a5c)",
     border:"1px solid #2e6aad",color:"#e8f4f8",borderRadius:7,
     padding:"10px 20px",fontSize:11,letterSpacing:3};
+
+  const SH = ({label,field,style={}}) => (
+    <SortHeader label={label} field={field} sortField={sortField}
+      sortDir={sortDir} onSort={onSort} style={style}/>
+  );
 
   return (
     <div style={{minHeight:"100vh",background:"#05090f"}}>
@@ -379,7 +452,7 @@ function App() {
         <div style={{fontSize:22,fontWeight:700}}>⚾ <span style={{color:"#ff9f1c"}}>HR</span>INTEL</div>
         <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:3,marginTop:2}}>MLB HOME RUN LEADERBOARD</div>
         <div style={{marginLeft:"auto",display:"flex",gap:2}}>
-          {[["leaderboard","LEADERBOARD"],["predict","SINGLE"],["config","CONFIG"]].map(([t,l])=>(
+          {[["leaderboard","LEADERBOARD"],["parks","PARKS"],["config","CONFIG"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={{
               background:tab===t?"#1a3a5c":"transparent",
               border:`1px solid ${tab===t?"#2e5a8a":"transparent"}`,
@@ -398,32 +471,29 @@ function App() {
             onChange={e=>{setToken(e.target.value);setConnStatus(null);}}
             placeholder="Your SECRET_TOKEN value"/>
           <button onClick={async()=>{
-            setConnStatus("testing"); setConnMsg("Connecting...");
-            try {
-              const d = await apiFetch("/health",token,{method:"GET"});
-              setConnStatus("ok"); setConnMsg(`Connected — Season ${d.season}`);
-            } catch(e) {
-              setConnStatus("error"); setConnMsg(e.message);
-            }
+            setConnStatus("testing");setConnMsg("Connecting...");
+            try{
+              const d=await apiFetch("/health",token,{method:"GET"});
+              setConnStatus("ok");setConnMsg(`Connected — Season ${d.season}`);
+            }catch(e){setConnStatus("error");setConnMsg(e.message);}
           }} style={{...BTN,marginTop:12,width:"100%",opacity:token?1:0.4}}>
             {connStatus==="testing"?"⟳ TESTING…":"TEST CONNECTION"}
           </button>
-          {connStatus==="ok"&&(
-            <div style={{marginTop:10,padding:"10px 14px",background:"#0a2a1a",
-              border:"1px solid #2a6a3a",borderRadius:8,fontSize:11,color:"#6bcb77"}}>✅ {connMsg}</div>
-          )}
-          {connStatus==="error"&&(
-            <div style={{marginTop:10,padding:"10px 14px",background:"#1a0000",
-              border:"1px solid #ff3b3b",borderRadius:8,fontSize:11,color:"#ff6b6b",wordBreak:"break-all"}}>❌ {connMsg}</div>
-          )}
+          {connStatus==="ok"&&<div style={{marginTop:10,padding:"10px 14px",background:"#0a2a1a",
+            border:"1px solid #2a6a3a",borderRadius:8,fontSize:11,color:"#6bcb77"}}>✅ {connMsg}</div>}
+          {connStatus==="error"&&<div style={{marginTop:10,padding:"10px 14px",background:"#1a0000",
+            border:"1px solid #ff3b3b",borderRadius:8,fontSize:11,color:"#ff6b6b",wordBreak:"break-all"}}>❌ {connMsg}</div>}
           <div style={{marginTop:14,padding:"10px 14px",background:"#0a1628",
             border:"1px solid #1e3a5f",borderRadius:8,fontSize:9,color:"#4a7fa5",lineHeight:1.8}}>
-            Token is sent as <span style={{color:"#ff9f1c"}}>x-token</span> header.<br/>
-            Must match <span style={{color:"#ff9f1c"}}>SECRET_TOKEN</span> env var on your Lambda.<br/>
-            Token is saved to localStorage so you only need to enter it once.
+            Token sent as <span style={{color:"#ff9f1c"}}>x-token</span> header.<br/>
+            Must match <span style={{color:"#ff9f1c"}}>SECRET_TOKEN</span> env var on Lambda.<br/>
+            Saved to localStorage — enter once per device.
           </div>
         </div>
       )}
+
+      {/* Parks */}
+      {tab==="parks"&&<ParksTab parksData={parksData}/>}
 
       {/* Leaderboard */}
       {tab==="leaderboard"&&(
@@ -460,7 +530,7 @@ function App() {
           {lbData&&(
             <div style={{display:"grid",gridTemplateColumns:selected?"1fr 320px":"1fr",gap:16,alignItems:"start"}}>
               <div>
-                {/* Game chips — empty selection = all games */}
+                {/* Game chips */}
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
                   {(lbData.games||[]).map(g=>{
                     const active=selectedGames.has(g.game_pk);
@@ -477,96 +547,49 @@ function App() {
                 </div>
                 <div style={{fontSize:9,color:"#4a7fa5",marginBottom:10}}>
                   {selectedGames.size===0
-                    ? "No games selected — ▶ RUN will score all matchups"
-                    : `${selectedGames.size} game${selectedGames.size>1?"s":""} selected — ▶ RUN will score selected only · `}
+                    ?"No games selected — ▶ RUN scores all matchups"
+                    :`${selectedGames.size} game${selectedGames.size>1?"s":""} selected · `}
                   {selectedGames.size>0&&
                     <span onClick={()=>setSelectedGames(new Set())}
-                      style={{color:"#ff6b35",cursor:"pointer",textDecoration:"underline"}}>
-                      clear selection
-                    </span>}
+                      style={{color:"#ff6b35",cursor:"pointer",textDecoration:"underline"}}>clear</span>}
                 </div>
                 {/* Filters */}
-                <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+                <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
                   <input value={search} onChange={e=>setSearch(e.target.value)}
-                    placeholder="Search batter…" style={{width:160,padding:"5px 10px",fontSize:10}}/>
+                    placeholder="Search batter…" style={{width:150,padding:"5px 10px",fontSize:10}}/>
                   <select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}
-                    style={{width:80,padding:"5px 8px",fontSize:10}}>
+                    style={{width:75,padding:"5px 8px",fontSize:10}}>
                     {["ALL","A+","A","B+","B","C+","C","D"].map(g=><option key={g} value={g}>{g}</option>)}
                   </select>
                   <span style={{fontSize:9,color:"#4a7fa5",marginLeft:"auto"}}>{filtered.length} results</span>
                 </div>
                 {/* Table header */}
-                <div style={{display:"grid",gridTemplateColumns:"36px 1fr 90px 70px 70px 70px 80px",
-                  gap:6,padding:"6px 12px",borderBottom:"1px solid #1e2a3a",
-                  fontSize:8,color:"#4a7fa5",letterSpacing:2}}>
-                  <div style={{textAlign:"center"}}>#</div>
-                  <div>BATTER / MATCHUP</div>
-                  <div style={{textAlign:"center"}}>GRADE</div>
-                  <div style={{textAlign:"center"}}>EV 90TH</div>
-                  <div style={{textAlign:"center"}}>BARREL%</div>
-                  <div style={{textAlign:"center"}}>PARK</div>
-                  <div onClick={()=>setSortField(s=>s==="hard_hit_rate"?"hr_probability":"hard_hit_rate")}
-                    style={{textAlign:"center",cursor:"pointer",
-                      color:sortField==="hard_hit_rate"?"#ff9f1c":"#4a7fa5",
-                      userSelect:"none"}}>
-                    HARD HIT%{sortField==="hard_hit_rate"?" ↓":""}
-                  </div>
+                <div style={{display:"grid",
+                  gridTemplateColumns:"36px 1fr 80px 65px 65px 65px 55px",
+                  gap:4,padding:"6px 10px",borderBottom:"1px solid #1e2a3a"}}>
+                  <div style={{fontSize:8,color:"#4a7fa5",textAlign:"center"}}>#</div>
+                  <div style={{fontSize:8,color:"#4a7fa5"}}>BATTER</div>
+                  <SH label="GRADE" field="grade" style={{}}/>
+                  <SH label="EV 90TH" field="ev_90th" style={{}}/>
+                  <SH label="BARREL%" field="barrel_rate" style={{}}/>
+                  <SH label="HARD HIT%" field="hard_hit" style={{}}/>
+                  <SH label="HRs" field="hr_count" style={{}}/>
                 </div>
                 <div style={{background:"#080f1a",borderRadius:8,overflow:"hidden",border:"1px solid #1e2a3a"}}>
                   {filtered.length===0
                     ?<div style={{padding:32,textAlign:"center",color:"#4a7fa5",fontSize:11}}>
-                      {lbData.leaderboard.length===0?"No results — check probable starters are posted for this date.":"No batters match filters."}</div>
-                    :filtered.map(row=>(
-                      <LeaderboardRow key={`${row.batter_id}-${row.game_pk}`} row={row}
+                      {lbData.leaderboard.length===0
+                        ?"No results — check probable starters are posted for this date."
+                        :"No batters match filters."}</div>
+                    :filtered.map((row,i)=>(
+                      <LeaderboardRow key={`${row.batter_id}-${row.game_pk}`}
+                        row={row} rank={i+1}
                         selected={selected?.batter_id===row.batter_id&&selected?.game_pk===row.game_pk}
                         onClick={()=>setSelected(p=>p?.batter_id===row.batter_id&&p?.game_pk===row.game_pk?null:row)}/>
                     ))}
                 </div>
               </div>
               {selected&&<DetailPanel row={selected} onClose={()=>setSelected(null)}/>}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Single Predict */}
-      {tab==="predict"&&(
-        <div style={{maxWidth:860,margin:"20px auto",padding:"0 20px"}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14,marginBottom:16}}>
-            <PlayerSearch label="BATTER" role="batter" token={token}
-              value={batterName}
-              onChange={(name,id)=>{setBatterName(name);if(id)setBatterId(String(id));}}/>
-            <PlayerSearch label="STARTING PITCHER" role="pitcher" token={token}
-              value={pitcherName}
-              onChange={(name,id)=>{setPitcherName(name);if(id)setPitcherId(String(id));}}/>
-            <div>
-              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>BALLPARK</label>
-              <select value={park} onChange={e=>setPark(e.target.value)}>
-                {PARKS.map(p=><option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>WIND MPH OUT (+) / IN (-)</label>
-              <input type="number" value={wind} onChange={e=>setWind(e.target.value)}/>
-              <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5,marginTop:10}}>STATCAST DAYS</label>
-              <input type="number" value={daysBack} onChange={e=>setDaysBack(e.target.value)} min="14" max="180"/>
-            </div>
-          </div>
-          <button onClick={runPredict}
-            disabled={singleLoading||!batterId||!pitcherId||!token}
-            style={{...BTN,width:"100%",fontSize:12,letterSpacing:4,padding:14,
-              opacity:(!token||singleLoading||!batterId||!pitcherId)?0.4:1}}>
-            {singleLoading?"⟳ FETCHING STATCAST…":"▶ PREDICT"}
-          </button>
-          {singleError&&<div style={{marginTop:12,padding:"10px 14px",background:"#1a0000",
-            border:"1px solid #ff3b3b",borderRadius:7,fontSize:10,color:"#ff6b6b"}}>❌ {singleError}</div>}
-          {singleResult&&(
-            <div style={{marginTop:20}}>
-              <DetailPanel row={{...singleResult,
-                batter_name:batterName||String(singleResult.batter_id),
-                pitcher_name:pitcherName||String(singleResult.pitcher_id),
-                batter_team:"",pitcher_team:"",venue:park,batting_order:null,position:null}}
-                onClose={()=>setSingleResult(null)}/>
             </div>
           )}
         </div>
