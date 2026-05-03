@@ -193,12 +193,84 @@ function DetailPanel({row,onClose}) {
           </div>
         ))}
       </div>
-      {mh.pa>0&&(
+      {(mh.pa>0||row.career_matchup?.pa>0)&&(
         <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
-          padding:"10px 14px",marginBottom:12,fontSize:11,color:"#7a9ab5"}}>
-          Head-to-head: <strong style={{color:"#e8f4f8"}}>{mh.pa} PA</strong>,{" "}
-          <strong style={{color:"#ff9f1c"}}>{mh.hr} HR</strong>
-          {mh.ev_mean?`, avg EV ${mh.ev_mean} mph`:""}
+          padding:"12px 14px",marginBottom:12}}>
+
+          {/* H2H header */}
+          <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:10}}>
+            H2H vs {row.pitcher_name||"PITCHER"}
+          </div>
+
+          {/* Current season — weighted in model */}
+          {mh.pa>0?(
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:9,color:"#ff9f1c",letterSpacing:1,marginBottom:6}}>
+                {new Date().getFullYear()} SEASON
+                <span style={{marginLeft:8,fontSize:8,color:"#4a7fa5"}}>(used in model)</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
+                {[
+                  ["PA",        mh.pa,   ""],
+                  ["HR",        mh.hr,   ""],
+                  ["Hard Hit%", mh.hard_hit_rate!=null?(mh.hard_hit_rate*100).toFixed(1)+"%":"—", ""],
+                  ["EV 90th",   mh.ev_90th!=null?mh.ev_90th:"—", mh.ev_90th!=null?"mph":""],
+                ].map(([l,v,u])=>(
+                  <div key={l} style={{background:"#0d1b2a",borderRadius:6,padding:"7px 8px"}}>
+                    <div style={{fontSize:8,color:"#4a7fa5",marginBottom:2}}>{l}</div>
+                    <div style={{fontSize:14,fontWeight:700,
+                      color:l==="HR"&&v>0?"#ff3b3b":
+                            l==="Hard Hit%"&&parseFloat(v)>=50?"#ff9f1c":"#e8f4f8"}}>
+                      {v}{u&&v!=="—"?<span style={{fontSize:8,color:"#7a9ab5",marginLeft:2}}>{u}</span>:null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ):(
+            <div style={{fontSize:10,color:"#4a7fa5",marginBottom:12}}>
+              No {new Date().getFullYear()} season matchup data
+            </div>
+          )}
+
+          {/* Career H2H — display only, not weighted */}
+          {row.career_matchup?.pa>0&&(()=>{
+            const cm = row.career_matchup;
+            const careerRate = cm.hr / cm.pa;
+            const seasonRate = mh.pa>0 ? mh.hr/mh.pa : null;
+            const diff = seasonRate!=null ? ((seasonRate-careerRate)*100) : null;
+            return (
+              <div>
+                <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:1,marginBottom:6}}>
+                  CAREER H2H
+                  <span style={{marginLeft:8,fontSize:8,color:"#2a3a4a"}}>(display only)</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
+                  {[
+                    ["PA",        cm.pa,   ""],
+                    ["HR",        cm.hr,   ""],
+                    ["Hard Hit%", cm.hard_hit_rate!=null?(cm.hard_hit_rate*100).toFixed(1)+"%":"—", ""],
+                    ["EV 90th",   cm.ev_90th!=null?cm.ev_90th:"—", cm.ev_90th!=null?"mph":""],
+                  ].map(([l,v,u])=>(
+                    <div key={l} style={{background:"#0a1220",borderRadius:6,padding:"7px 8px"}}>
+                      <div style={{fontSize:8,color:"#4a7fa5",marginBottom:2}}>{l}</div>
+                      <div style={{fontSize:14,fontWeight:700,
+                        color:l==="HR"&&v>0?"#ff9f1c":
+                              l==="Hard Hit%"&&parseFloat(v)>=50?"#ffbf47":"#7a9ab5"}}>
+                        {v}{u&&v!=="—"?<span style={{fontSize:8,color:"#4a7fa5",marginLeft:2}}>{u}</span>:null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {diff!=null&&mh.pa>=3&&Math.abs(diff)>1&&(
+                  <div style={{marginTop:8,fontSize:10,fontWeight:600,
+                    color:diff>0?"#6bcb77":"#ff6b6b"}}>
+                    {diff>0?"↑":"↓"} {Math.abs(diff).toFixed(1)}% {diff>0?"above":"below"} career HR rate vs this pitcher this season
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
       {row.weather&&(row.weather.temp_f||row.weather.wind_mph_out)&&(
