@@ -35,7 +35,7 @@
 <script type="text/babel">
 const {useState,useCallback,useEffect,useRef,useMemo} = React;
 
-const LAMBDA   = "https://z1yqu5bt81.execute-api.us-east-2.amazonaws.com";
+const LAMBDA = "https://dzyr3cgrvzb2udhgr75xa3rymi0ttiwq.lambda-url.us-east-2.on.aws";
 const TODAY    = new Date().toISOString().slice(0,10);
 const GRADE_CLR= {"A+":"#ff3b3b","A":"#ff6b35","B+":"#ff9f1c","B":"#ffbf47","C+":"#6bcb77","C":"#4d96ff","D":"#7a9ab5"};
 const GRADE_ORDER = ["A+","A","B+","B","C+","C","D"];
@@ -523,7 +523,7 @@ function App() {
       if(!allGames.length){setError("No games found for this date.");setLoading(false);return;}
 
       // ALWAYS score all games — local filter applies after
-      const CHUNK=1; let allResults=[];
+      const CHUNK=3; let allResults=[];
       for(let i=0;i<allGames.length;i+=CHUNK){
         const pks=allGames.slice(i,i+CHUNK).map(g=>g.game_pk);
         setConnMsg(`Scoring games ${i+1}–${Math.min(i+CHUNK,allGames.length)} of ${allGames.length}…`);
