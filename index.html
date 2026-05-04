@@ -2,14 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover">
 <title>HR Intel — MLB Home Run Predictor</title>
+
+<!-- PWA metadata -->
+<meta name="theme-color" content="#05090f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HR Intel">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%2305090f'/%3E%3Ctext x='90' y='115' font-size='110' text-anchor='middle' fill='%23ff9f1c'%3E⚾%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22HR%20Intel%22%2C%22short_name%22%3A%22HR%20Intel%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%2305090f%22%2C%22theme_color%22%3A%22%2305090f%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%2C%253Csvg%2520xmlns%253D%2527http%253A%2F%2Fwww.w3.org%2F2000%2Fsvg%2527%2520viewBox%253D%25270%25200%2520512%2520512%2527%253E%253Crect%2520width%253D%2527512%2527%2520height%253D%2527512%2527%2520fill%253D%2527%252305090f%2527%2F%253E%253Ctext%2520x%253D%2527256%2527%2520y%253D%2527330%2527%2520font-size%253D%2527320%2527%2520text-anchor%253D%2527middle%2527%2520fill%253D%2527%2523ff9f1c%2527%253E%25E2%259A%25BE%253C%2Ftext%253E%253C%2Fsvg%253E%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#05090f;color:#e8f4f8;font-family:'Courier New',monospace;min-height:100vh}
+  body{background:#05090f;color:#e8f4f8;font-family:'Courier New',monospace;min-height:100vh;
+    padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
   input,select{background:#080f1a;border:1px solid #1e3a5f;border-radius:7px;padding:9px 12px;
     color:#e8f4f8;font-size:12px;font-family:'Courier New',monospace;outline:none;width:100%}
   button{cursor:pointer;font-family:'Courier New',monospace;transition:all 0.2s}
@@ -29,14 +40,14 @@ const TODAY    = new Date().toISOString().slice(0,10);
 const GRADE_CLR= {"A+":"#ff3b3b","A":"#ff6b35","B+":"#ff9f1c","B":"#ffbf47","C+":"#6bcb77","C":"#4d96ff","D":"#7a9ab5"};
 const GRADE_ORDER = ["A+","A","B+","B","C+","C","D"];
 const PARK_NAMES = {
-  COL:"Coors Field",CIN:"Great American Ball Park",PHI:"Citizens Bank Park",
-  HOU:"Minute Maid Park",MIL:"American Family Field",ARI:"Chase Field",
-  BAL:"Camden Yards",BOS:"Fenway Park",TEX:"Globe Life Field",NYY:"Yankee Stadium",
+  COL:"Coors Field",CIN:"Great American",PHI:"Citizens Bank",
+  HOU:"Daikin Park",MIL:"American Family",ARI:"Chase Field",
+  BAL:"Camden Yards",BOS:"Fenway Park",TEX:"Globe Life",NYY:"Yankee Stadium",
   ATL:"Truist Park",CHC:"Wrigley Field",TOR:"Rogers Centre",DET:"Comerica Park",
   MIN:"Target Field",STL:"Busch Stadium",LAD:"Dodger Stadium",CLE:"Progressive Field",
   WSH:"Nationals Park",MIA:"loanDepot park",SEA:"T-Mobile Park",SFG:"Oracle Park",
   SDP:"Petco Park",OAK:"Oakland Coliseum",NYM:"Citi Field",LAA:"Angel Stadium",
-  CHW:"Guaranteed Rate Field",PIT:"PNC Park",KCR:"Kauffman Stadium",TBR:"Tropicana Field",
+  CHW:"Rate Field",PIT:"PNC Park",KCR:"Kauffman Stadium",TBR:"Tropicana Field",
 };
 const PARK_FACTORS = {
   COL:1.24,CIN:1.18,PHI:1.16,HOU:1.14,MIL:1.12,ARI:1.10,BAL:1.09,BOS:1.08,
@@ -44,6 +55,42 @@ const PARK_FACTORS = {
   LAD:0.99,CLE:0.98,WSH:0.97,MIA:0.96,SEA:0.95,SFG:0.94,SDP:0.93,OAK:0.92,
   NYM:0.91,LAA:0.90,CHW:0.89,PIT:0.88,KCR:0.87,TBR:0.86,
 };
+const INDOOR_PARKS = new Set(["TBR","TOR","HOU","MIL","ARI","TEX","MIA","SEA"]);
+
+// ── Weather badge (shared between Leaderboard & Parks) ───────────────────────
+function getWeatherBadge(weather, parkCode) {
+  if (INDOOR_PARKS.has(parkCode)) {
+    return { color:"#7a9ab5", label:"INDOORS", score:0, tone:"indoor" };
+  }
+  if (!weather) {
+    return { color:"#000000", label:"NO DATA", score:null, tone:"missing" };
+  }
+  const wind = weather.wind_mph_out;
+  const temp = weather.temp_f;
+  const humid = weather.humidity_pct;
+  if (wind == null || temp == null || humid == null) {
+    return { color:"#000000", label:"NO DATA", score:null, tone:"missing" };
+  }
+  const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
+  const windScore  = clamp(wind/15, -1, 1);
+  const tempScore  = clamp((temp-72)/18, -1, 1);
+  const humidScore = clamp(-(humid-50)/30, -1, 1);
+  const combined = 0.4*windScore + 0.3*tempScore + 0.3*humidScore;
+  if (combined >  0.5) return { color:"#6bcb77", label:"BOOST",    score:combined, tone:"strong+" };
+  if (combined >  0.2) return { color:"#4d96ff", label:"mild +",   score:combined, tone:"mild+" };
+  if (combined < -0.5) return { color:"#ff3b3b", label:"SUPPRESS", score:combined, tone:"strong-" };
+  if (combined < -0.2) return { color:"#ffbf47", label:"mild −",   score:combined, tone:"mild-" };
+  return { color:"#7a9ab5", label:"neutral", score:combined, tone:"neutral" };
+}
+
+// HR Index combines park factor + weather. Score >1 = HR-friendly today.
+function getHrIndex(parkFactor, badge) {
+  if (badge.score == null) return parkFactor;  // no data
+  return parkFactor * (1 + badge.score * 0.15);
+}
+
+// Tone sort priority (best conditions first)
+const TONE_PRIORITY = {"strong+":0,"mild+":1,"neutral":2,"mild-":3,"strong-":4,"indoor":5,"missing":6};
 
 async function apiFetch(path, token, options={}) {
   const base = LAMBDA.replace(/\/+$/,"");
@@ -56,7 +103,6 @@ async function apiFetch(path, token, options={}) {
   return JSON.parse(txt);
 }
 
-// ── Sort helper ───────────────────────────────────────────────────────────────
 function sortRows(rows, field, dir) {
   const mul = dir==="asc" ? 1 : -1;
   return [...rows].sort((a,b)=>{
@@ -66,7 +112,7 @@ function sortRows(rows, field, dir) {
       case "hr_probability": av=a.prediction?.hr_probability; bv=b.prediction?.hr_probability; break;
       case "grade":
         av=GRADE_ORDER.indexOf(a.prediction?.grade); bv=GRADE_ORDER.indexOf(b.prediction?.grade);
-        return mul*(av-bv); // lower index = better grade
+        return mul*(av-bv);
       case "ev_90th":    av=af.ev_90th;       bv=bf2.ev_90th;       break;
       case "barrel_rate":av=af.barrel_rate;   bv=bf2.barrel_rate;   break;
       case "park":       av=a.park_factor;    bv=b.park_factor;     break;
@@ -78,15 +124,33 @@ function sortRows(rows, field, dir) {
   });
 }
 
-// ── SortHeader ────────────────────────────────────────────────────────────────
 function SortHeader({label, field, sortField, sortDir, onSort, style={}}) {
   const active = sortField===field;
   return (
     <div onClick={()=>onSort(field)}
       style={{textAlign:"center",cursor:"pointer",userSelect:"none",
-        color:active?"#ff9f1c":"#4a7fa5",
-        ...style}}>
+        color:active?"#ff9f1c":"#4a7fa5",...style}}>
       {label}{active?(sortDir==="desc"?" ↓":" ↑"):""}
+    </div>
+  );
+}
+
+// ── Weather Badge inline component ────────────────────────────────────────────
+function WeatherBadge({weather, parkCode, size="sm"}) {
+  const b = getWeatherBadge(weather, parkCode);
+  const isLg = size==="lg";
+  return (
+    <div style={{display:"inline-block",
+      background:b.color+"22",
+      border:`1px solid ${b.color}`,
+      color:b.color,
+      borderRadius:4,
+      padding: isLg ? "2px 8px" : "1px 5px",
+      fontSize: isLg ? 9 : 7.5,
+      fontWeight:700,
+      letterSpacing:1,
+      whiteSpace:"nowrap"}}>
+      {b.label}
     </div>
   );
 }
@@ -108,7 +172,10 @@ function LeaderboardRow({row, rank, selected, onClick}) {
         {rank<=3?["🥇","🥈","🥉"][rank-1]:rank}
       </div>
       <div>
-        <div style={{fontSize:11,color:"#e8f4f8",fontWeight:600}}>{row.batter_name}</div>
+        <div style={{fontSize:11,color:"#e8f4f8",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
+          {row.batter_name}
+          <WeatherBadge weather={row.weather} parkCode={row.park_code} size="sm"/>
+        </div>
         <div style={{fontSize:8,color:"#4a7fa5",marginTop:1}}>
           {row.batter_team} vs {row.pitcher_name} · {row.park_code}{row.batting_order?` · #${row.batting_order}`:""}
         </div>
@@ -136,7 +203,7 @@ function LeaderboardRow({row, rank, selected, onClick}) {
       </div>
       <div style={{textAlign:"center"}}>
         <div style={{fontSize:13,fontWeight:700,
-          color:bf.hr_count>=10?"#ff3b3b":bf.hr_count>=5?"#ff9f1c":bf.hr_count>=1?"#ffbf47":"#7a9ab5"}}>
+          color:bf.hr_count>=20?"#ff3b3b":bf.hr_count>=10?"#ff9f1c":bf.hr_count>=3?"#ffbf47":"#7a9ab5"}}>
           {bf.hr_count??"-"}
         </div>
         <div style={{fontSize:7,color:"#4a7fa5"}}>HRs</div>
@@ -145,12 +212,13 @@ function LeaderboardRow({row, rank, selected, onClick}) {
   );
 }
 
-// ── DetailPanel ───────────────────────────────────────────────────────────────
+// ── DetailPanel (10-day stats replace H2H) ────────────────────────────────────
 function DetailPanel({row,onClose}) {
   if(!row)return null;
   const pred=row.prediction; const bf=row.batter_features||{};
-  const pf=row.pitcher_features||{}; const mh=row.matchup_history||{};
+  const pf=row.pitcher_features||{};
   const c=GRADE_CLR[pred.grade]||"#7a9ab5";
+  const has10d = bf.pa_10d!=null && bf.pa_10d>0;
   return (
     <div style={{background:"#080f1a",border:"1px solid #1e3a5f",borderRadius:10,padding:20,
       position:"sticky",top:16,maxHeight:"90vh",overflowY:"auto"}}>
@@ -158,8 +226,8 @@ function DetailPanel({row,onClose}) {
         <div>
           <div style={{fontSize:15,fontWeight:700,color:"#e8f4f8"}}>{row.batter_name}</div>
           <div style={{fontSize:10,color:"#4a7fa5",marginTop:3}}>
-            {row.batter_team} · #{row.batting_order||"?"} · {row.position||"?"}</div>
-          <div style={{fontSize:10,color:"#4a7fa5"}}>vs {row.pitcher_name} ({row.pitcher_team})</div>
+            {row.batter_team} · #{row.batting_order||"?"} · {row.position||"?"} · {bf.batter_hand||"?"}HB</div>
+          <div style={{fontSize:10,color:"#4a7fa5"}}>vs {row.pitcher_name} ({row.pitcher_team}) · {pf.pitcher_hand||"?"}HP</div>
           <div style={{fontSize:10,color:"#4a7fa5"}}>{row.venue} · {row.park_code}</div>
         </div>
         <button onClick={onClose} style={{background:"none",border:"none",color:"#4a7fa5",fontSize:18}}>✕</button>
@@ -168,9 +236,11 @@ function DetailPanel({row,onClose}) {
         <div style={{fontSize:32,fontWeight:700,color:c}}>{pred.hr_probability_pct?.toFixed(2)}%</div>
         <div style={{fontSize:11,color:"#7a9ab5",marginTop:4}}>HR Probability · Grade {pred.grade}</div>
         <div style={{fontSize:10,color:"#4a7fa5",marginTop:4}}>
-          90% CI: {(pred.ci_low*100).toFixed(1)}% – {(pred.ci_high*100).toFixed(1)}%</div>
+          Model CI: {(pred.ci_low*100).toFixed(1)}% – {(pred.ci_high*100).toFixed(1)}%</div>
+        {pred.model_version && <div style={{fontSize:8,color:"#2a3a4a",marginTop:3}}>model {pred.model_version}</div>}
       </div>
-      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>BATTER ({bf.pa_sample} PA / {bf.hr_count??0} HRs)</div>
+
+      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>BATTER SEASON ({bf.pa_sample} PA / {bf.hr_count??0} HRs)</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
         {[["EV Mean",bf.ev_mean,"mph"],["EV 90th",bf.ev_90th,"mph"],["Launch Ang",bf.launch_angle,"°"],
           ["Barrel%",bf.barrel_rate!=null?(bf.barrel_rate*100).toFixed(1)+"%":null,""],
@@ -182,6 +252,33 @@ function DetailPanel({row,onClose}) {
           </div>
         ))}
       </div>
+
+      {/* NEW: 10-day recency block */}
+      <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>
+        LAST 10 DAYS{has10d?` (${bf.pa_10d} PA / ${bf.hr_count_10d??0} HRs)`:" (no data)"}
+      </div>
+      {has10d ? (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+          {[
+            ["EV 90th 10d", bf.ev_90th_10d, "mph"],
+            ["Barrel% 10d", bf.barrel_rate_10d!=null?(bf.barrel_rate_10d*100).toFixed(1)+"%":null, ""],
+            ["HRs 10d",     bf.hr_count_10d, ""],
+          ].map(([l,v,u])=>(
+            <div key={l} style={{background:"#0a1e35",borderRadius:7,padding:"8px 10px",border:"1px solid #1a3a5c"}}>
+              <div style={{fontSize:8,color:"#ff9f1c",marginBottom:3,letterSpacing:1}}>{l}</div>
+              <div style={{fontSize:14,fontWeight:600,color:"#e8f4f8"}}>
+                {v??"-"}{v!=null&&u?<span style={{fontSize:8,color:"#7a9ab5",marginLeft:2}}>{u}</span>:null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{fontSize:10,color:"#4a7fa5",marginBottom:16,padding:"10px 14px",
+          background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:7}}>
+          No PAs in the last 10 days. Possible recent call-up or returning from injury — verify before betting on this prediction.
+        </div>
+      )}
+
       <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:8}}>PITCHER ({pf.bf_sample} BF)</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
         {[["HR/9",pf.hr_per_9],["EV Allowed",pf.ev_allowed_mean!=null?pf.ev_allowed_mean+" mph":null],
@@ -193,101 +290,31 @@ function DetailPanel({row,onClose}) {
           </div>
         ))}
       </div>
-      {(mh.pa>0||row.career_matchup?.pa>0)&&(
-        <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
-          padding:"12px 14px",marginBottom:12}}>
 
-          {/* H2H header */}
-          <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:10}}>
-            H2H vs {row.pitcher_name||"PITCHER"}
+      {row.weather&&(row.weather.temp_f!=null||row.weather.wind_mph_out!=null)&&(
+        <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
+          padding:"10px 14px",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:9,color:"#4a7fa5",letterSpacing:2}}>CONDITIONS</span>
+            <WeatherBadge weather={row.weather} parkCode={row.park_code} size="lg"/>
           </div>
-
-          {/* Current season — weighted in model */}
-          {mh.pa>0?(
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:9,color:"#ff9f1c",letterSpacing:1,marginBottom:6}}>
-                {new Date().getFullYear()} SEASON
-                <span style={{marginLeft:8,fontSize:8,color:"#4a7fa5"}}>(used in model)</span>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
-                {[
-                  ["PA",        mh.pa,   ""],
-                  ["HR",        mh.hr,   ""],
-                  ["Hard Hit%", mh.hard_hit_rate!=null?(mh.hard_hit_rate*100).toFixed(1)+"%":"—", ""],
-                  ["EV 90th",   mh.ev_90th!=null?mh.ev_90th:"—", mh.ev_90th!=null?"mph":""],
-                ].map(([l,v,u])=>(
-                  <div key={l} style={{background:"#0d1b2a",borderRadius:6,padding:"7px 8px"}}>
-                    <div style={{fontSize:8,color:"#4a7fa5",marginBottom:2}}>{l}</div>
-                    <div style={{fontSize:14,fontWeight:700,
-                      color:l==="HR"&&v>0?"#ff3b3b":
-                            l==="Hard Hit%"&&parseFloat(v)>=50?"#ff9f1c":"#e8f4f8"}}>
-                      {v}{u&&v!=="—"?<span style={{fontSize:8,color:"#7a9ab5",marginLeft:2}}>{u}</span>:null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ):(
-            <div style={{fontSize:10,color:"#4a7fa5",marginBottom:12}}>
-              No {new Date().getFullYear()} season matchup data
-            </div>
-          )}
-
-          {/* Career H2H — display only, not weighted */}
-          {row.career_matchup?.pa>0&&(()=>{
-            const cm = row.career_matchup;
-            const careerRate = cm.hr / cm.pa;
-            const seasonRate = mh.pa>0 ? mh.hr/mh.pa : null;
-            const diff = seasonRate!=null ? ((seasonRate-careerRate)*100) : null;
-            return (
-              <div>
-                <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:1,marginBottom:6}}>
-                  CAREER H2H
-                  <span style={{marginLeft:8,fontSize:8,color:"#2a3a4a"}}>(display only)</span>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
-                  {[
-                    ["PA",        cm.pa,   ""],
-                    ["HR",        cm.hr,   ""],
-                    ["Hard Hit%", cm.hard_hit_rate!=null?(cm.hard_hit_rate*100).toFixed(1)+"%":"—", ""],
-                    ["EV 90th",   cm.ev_90th!=null?cm.ev_90th:"—", cm.ev_90th!=null?"mph":""],
-                  ].map(([l,v,u])=>(
-                    <div key={l} style={{background:"#0a1220",borderRadius:6,padding:"7px 8px"}}>
-                      <div style={{fontSize:8,color:"#4a7fa5",marginBottom:2}}>{l}</div>
-                      <div style={{fontSize:14,fontWeight:700,
-                        color:l==="HR"&&v>0?"#ff9f1c":
-                              l==="Hard Hit%"&&parseFloat(v)>=50?"#ffbf47":"#7a9ab5"}}>
-                        {v}{u&&v!=="—"?<span style={{fontSize:8,color:"#4a7fa5",marginLeft:2}}>{u}</span>:null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {diff!=null&&mh.pa>=3&&Math.abs(diff)>1&&(
-                  <div style={{marginTop:8,fontSize:10,fontWeight:600,
-                    color:diff>0?"#6bcb77":"#ff6b6b"}}>
-                    {diff>0?"↑":"↓"} {Math.abs(diff).toFixed(1)}% {diff>0?"above":"below"} career HR rate vs this pitcher this season
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          <div style={{fontSize:10,color:"#7a9ab5",display:"flex",gap:16,flexWrap:"wrap"}}>
+            {row.weather.temp_f!=null&&<span>🌡 <strong style={{color:"#e8f4f8"}}>{row.weather.temp_f}°F</strong></span>}
+            {row.weather.wind_mph_out!=null&&(
+              <span>{row.weather.wind_mph_out>=0?"💨 OUT":"💨 IN"}{" "}
+                <strong style={{color:row.weather.wind_mph_out>0?"#6bcb77":row.weather.wind_mph_out<0?"#ff6b6b":"#e8f4f8"}}>
+                  {Math.abs(row.weather.wind_mph_out)} mph</strong>
+              </span>
+            )}
+            {row.weather.humidity_pct!=null&&<span>💧 <strong style={{color:"#e8f4f8"}}>{row.weather.humidity_pct}%</strong></span>}
+          </div>
         </div>
       )}
-      {row.weather&&(row.weather.temp_f||row.weather.wind_mph_out)&&(
-        <div style={{background:"#0a1628",border:"1px solid #1e2a3a",borderRadius:8,
-          padding:"10px 14px",marginBottom:12,fontSize:10,color:"#7a9ab5",display:"flex",gap:16,flexWrap:"wrap"}}>
-          {row.weather.temp_f!=null&&<span>🌡 <strong style={{color:"#e8f4f8"}}>{row.weather.temp_f}°F</strong></span>}
-          {row.weather.wind_mph_out!=null&&(
-            <span>{row.weather.wind_mph_out>=0?"💨 OUT":"💨 IN"}{" "}
-              <strong style={{color:row.weather.wind_mph_out>0?"#6bcb77":row.weather.wind_mph_out<0?"#ff6b6b":"#e8f4f8"}}>
-                {Math.abs(row.weather.wind_mph_out)} mph</strong>
-            </span>
-          )}
-          {row.weather.humidity_pct!=null&&<span>💧 <strong style={{color:"#e8f4f8"}}>{row.weather.humidity_pct}%</strong> humidity</span>}
-        </div>
-      )}
+
       <div style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,marginBottom:10}}>MODEL FACTORS</div>
-      {Object.entries(pred.factors||{}).map(([k,v])=>{
+      {Object.entries(pred.factors||{})
+        .sort((a,b)=>Math.abs(b[1].contribution||0)-Math.abs(a[1].contribution||0))
+        .map(([k,v])=>{
         const c2=v.contribution||0; const pos=c2>=0;
         return (
           <div key={k} style={{marginBottom:7}}>
@@ -306,21 +333,45 @@ function DetailPanel({row,onClose}) {
   );
 }
 
-// ── Parks Tab ─────────────────────────────────────────────────────────────────
-function ParksTab({parksData}) {
-  const [sortF,setSortF] = useState("factor");
+// ── Parks Tab — active games only, ranked by HR Index ─────────────────────────
+function ParksTab({games}) {
+  const [sortF,setSortF] = useState("hr_index");
   const [sortD,setSortD] = useState("desc");
-  const parks = parksData;
+
+  const parks = useMemo(()=>{
+    if(!games || games.length===0) return [];
+    return games.map(g=>{
+      const code = g.park_code;
+      const factor = PARK_FACTORS[code] || 1.0;
+      const badge = getWeatherBadge(g.weather, code);
+      const hrIndex = getHrIndex(factor, badge);
+      return {
+        code,
+        name:    PARK_NAMES[code] || code,
+        factor,
+        weather: g.weather,
+        badge,
+        hr_index: hrIndex,
+        game:     `${g.away_abbr}@${g.home_abbr}`,
+        game_time: g.game_time,
+      };
+    });
+  },[games]);
 
   const sorted = useMemo(()=>{
-    if(!parks) return [];
     const mul = sortD==="desc"?-1:1;
     return [...parks].sort((a,b)=>{
-      if(sortF==="factor")   return mul*(a.factor-b.factor);
-      if(sortF==="temp")     return mul*((a.weather?.temp_f??-999)-(b.weather?.temp_f??-999));
-      if(sortF==="wind")     return mul*((a.weather?.wind_mph_out??-999)-(b.weather?.wind_mph_out??-999));
-      if(sortF==="humidity") return mul*((a.weather?.humidity_pct??-999)-(b.weather?.humidity_pct??-999));
-      if(sortF==="name")     return mul*a.name.localeCompare(b.name);
+      if (sortF==="hr_index")  return mul*(a.hr_index - b.hr_index);
+      if (sortF==="conditions") {
+        const ap=TONE_PRIORITY[a.badge.tone]??99, bp=TONE_PRIORITY[b.badge.tone]??99;
+        if (ap!==bp) return mul*(bp-ap);
+        return mul*((b.badge.score||0)-(a.badge.score||0));
+      }
+      if (sortF==="factor")    return mul*(a.factor - b.factor);
+      if (sortF==="temp")      return mul*((a.weather?.temp_f??-999)-(b.weather?.temp_f??-999));
+      if (sortF==="wind")      return mul*((a.weather?.wind_mph_out??-999)-(b.weather?.wind_mph_out??-999));
+      if (sortF==="humidity")  return mul*((a.weather?.humidity_pct??-999)-(b.weather?.humidity_pct??-999));
+      if (sortF==="name")      return mul*a.name.localeCompare(b.name);
       return 0;
     });
   },[parks,sortF,sortD]);
@@ -338,83 +389,96 @@ function ParksTab({parksData}) {
     </div>
   );
 
+  const indexColor = (idx) => {
+    if (idx >= 1.20) return "#ff3b3b";
+    if (idx >= 1.10) return "#ff9f1c";
+    if (idx >= 1.02) return "#ffbf47";
+    if (idx >= 0.95) return "#e8f4f8";
+    return "#6bcb77";  // <0.95 = HR-suppressing (counterintuitive but blue/green is "good for pitchers")
+  };
+
   return (
     <div style={{padding:"16px 20px"}}>
       <div style={{marginBottom:14}}>
-        <div style={{fontSize:11,color:"#4a7fa5",letterSpacing:3}}>PARK CONDITIONS</div>
-        {!parks&&<div style={{marginTop:12,fontSize:10,color:"#4a7fa5"}}>
-          Run the leaderboard first to populate park conditions.</div>}
+        <div style={{fontSize:11,color:"#4a7fa5",letterSpacing:3}}>TODAY'S PARK CONDITIONS</div>
+        <div style={{fontSize:9,color:"#4a7fa5",marginTop:4}}>
+          Active games only · ranked by HR Index (park × weather)
+        </div>
+        {parks.length===0 && (
+          <div style={{marginTop:12,fontSize:10,color:"#4a7fa5"}}>
+            Run the leaderboard first to populate today's games.
+          </div>
+        )}
       </div>
-      {parks&&(
+      {parks.length>0 && (
         <>
-          {/* Header */}
           <div style={{display:"grid",
-            gridTemplateColumns:"110px 1fr 80px 70px 80px 70px 60px",
+            gridTemplateColumns:"36px 110px 1fr 75px 75px 65px 60px 60px",
             gap:6,padding:"6px 12px",borderBottom:"1px solid #1e2a3a"}}>
-            <SH label="PARK" field="name" style={{textAlign:"left"}}/>
-            <SH label="TODAY'S GAME" field="game" style={{textAlign:"left",fontSize:8,letterSpacing:2,cursor:"default",color:"#4a7fa5"}}/>
-            <SH label="HR FACTOR" field="factor" style={{textAlign:"center"}}/>
-            <SH label="TEMP °F" field="temp" style={{textAlign:"center"}}/>
-            <SH label="WIND MPH" field="wind" style={{textAlign:"center"}}/>
-            <SH label="HUMIDITY" field="humidity" style={{textAlign:"center"}}/>
-            <div style={{fontSize:8,letterSpacing:2,color:"#4a7fa5",textAlign:"center"}}>PLAYING</div>
+            <div style={{fontSize:8,color:"#4a7fa5",textAlign:"center"}}>RANK</div>
+            <SH label="PARK"       field="name"       style={{textAlign:"left"}}/>
+            <SH label="GAME"       field="game"       style={{textAlign:"left",cursor:"default",color:"#4a7fa5"}}/>
+            <SH label="HR INDEX"   field="hr_index"   style={{textAlign:"center"}}/>
+            <SH label="CONDITIONS" field="conditions" style={{textAlign:"center"}}/>
+            <SH label="FACTOR"     field="factor"     style={{textAlign:"center"}}/>
+            <SH label="WIND"       field="wind"       style={{textAlign:"center"}}/>
+            <SH label="TEMP"       field="temp"       style={{textAlign:"center"}}/>
           </div>
           <div style={{background:"#080f1a",borderRadius:8,overflow:"hidden",border:"1px solid #1e2a3a"}}>
             {sorted.map((p,i)=>{
               const w = p.weather;
-              const fc = p.factor>=1.10?"#ff3b3b":p.factor>=1.05?"#ff9f1c":p.factor>=1.00?"#ffbf47":p.factor>=0.95?"#e8f4f8":"#6bcb77";
-              const wc = w?.wind_mph_out>5?"#6bcb77":w?.wind_mph_out<-5?"#ff6b6b":"#e8f4f8";
-              const tc = w?.temp_f>=85?"#ff6b35":w?.temp_f>=70?"#ffbf47":w?.temp_f>=55?"#e8f4f8":"#4d96ff";
+              const idxC = indexColor(p.hr_index);
+              const isTop = i<3 && sortF==="hr_index" && sortD==="desc";
               return (
                 <div key={p.code} style={{display:"grid",
-                  gridTemplateColumns:"110px 1fr 80px 70px 80px 70px 60px",
+                  gridTemplateColumns:"36px 110px 1fr 75px 75px 65px 60px 60px",
                   gap:6,padding:"9px 12px",borderBottom:"1px solid #0d1b2a",
-                  background:i%2===0?"transparent":"#070d14",
-                  opacity:p.playing?1:0.45}}>
-                  <div>
+                  background: isTop ? "#0a1e35" : (i%2===0 ? "transparent" : "#070d14"),
+                  borderLeft:`3px solid ${isTop ? idxC+"88" : "transparent"}`}}>
+                  <div style={{fontSize:isTop?13:10,fontWeight:700,
+                    color:isTop?idxC:"#4a7fa5",textAlign:"center",alignSelf:"center"}}>
+                    {isTop?["🥇","🥈","🥉"][i]:i+1}
+                  </div>
+                  <div style={{alignSelf:"center"}}>
                     <div style={{fontSize:11,fontWeight:600,color:"#e8f4f8"}}>{p.code}</div>
-                    <div style={{fontSize:8,color:"#4a7fa5"}}>{p.name.split(" ").slice(0,2).join(" ")}</div>
+                    <div style={{fontSize:7.5,color:"#4a7fa5"}}>{p.name}</div>
                   </div>
-                  <div style={{fontSize:10,color:p.playing?"#e8f4f8":"#4a7fa5",alignSelf:"center"}}>
-                    {p.game||<span style={{fontSize:9,color:"#2a3a4a"}}>no game</span>}
-                    {p.game_time&&<span style={{fontSize:8,color:"#4a7fa5",marginLeft:6}}>
+                  <div style={{fontSize:10,color:"#e8f4f8",alignSelf:"center"}}>
+                    {p.game}
+                    {p.game_time && <div style={{fontSize:8,color:"#4a7fa5"}}>
                       {new Date(p.game_time).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
-                    </span>}
+                    </div>}
                   </div>
-                  <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:13,fontWeight:700,color:fc}}>{p.factor.toFixed(2)}x</div>
+                  <div style={{textAlign:"center",alignSelf:"center"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:idxC}}>{p.hr_index.toFixed(2)}</div>
                   </div>
-                  <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:12,color:w?.temp_f!=null?tc:"#2a3a4a",fontWeight:w?.temp_f!=null?600:400}}>
-                      {w?.temp_f!=null?`${w.temp_f}°`:"-"}
-                    </div>
+                  <div style={{textAlign:"center",alignSelf:"center"}}>
+                    <WeatherBadge weather={p.weather} parkCode={p.code} size="sm"/>
                   </div>
-                  <div style={{textAlign:"center"}}>
+                  <div style={{textAlign:"center",alignSelf:"center"}}>
+                    <div style={{fontSize:11,color:"#7a9ab5"}}>{p.factor.toFixed(2)}x</div>
+                  </div>
+                  <div style={{textAlign:"center",alignSelf:"center"}}>
                     {w?.wind_mph_out!=null?(
-                      <div style={{fontSize:11,color:wc,fontWeight:Math.abs(w.wind_mph_out)>5?700:400}}>
-                        {w.wind_mph_out>=0?"↑ OUT":"↓ IN"} {Math.abs(w.wind_mph_out)}
+                      <div style={{fontSize:10,
+                        color:w.wind_mph_out>5?"#6bcb77":w.wind_mph_out<-5?"#ff6b6b":"#e8f4f8"}}>
+                        {w.wind_mph_out>=0?"↑":"↓"} {Math.abs(w.wind_mph_out)}
                       </div>
-                    ):<div style={{fontSize:11,color:"#2a3a4a"}}>-</div>}
+                    ):<div style={{fontSize:10,color:"#2a3a4a"}}>-</div>}
                   </div>
-                  <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:11,color:w?.humidity_pct!=null?"#e8f4f8":"#2a3a4a"}}>
-                      {w?.humidity_pct!=null?`${w.humidity_pct}%`:"-"}
+                  <div style={{textAlign:"center",alignSelf:"center"}}>
+                    <div style={{fontSize:10,color:w?.temp_f!=null?"#e8f4f8":"#2a3a4a"}}>
+                      {w?.temp_f!=null?`${Math.round(w.temp_f)}°`:"-"}
                     </div>
-                  </div>
-                  <div style={{textAlign:"center"}}>
-                    {p.playing
-                      ?<span style={{fontSize:9,color:"#6bcb77",fontWeight:700}}>✓</span>
-                      :<span style={{fontSize:9,color:"#2a3a4a"}}>—</span>}
                   </div>
                 </div>
               );
             })}
           </div>
-          <div style={{marginTop:10,fontSize:9,color:"#4a7fa5"}}>
-            {sorted.filter(p=>p.playing).length} parks active today · 
-            Weather shown for active parks only · 
-            Greyed rows = no game today · 
-            Wind: ↑ OUT = HR-friendly · ↓ IN = HR-suppressing
+          <div style={{marginTop:10,fontSize:9,color:"#4a7fa5",lineHeight:1.7}}>
+            HR Index = park factor × weather adjustment · 1.20+ = very HR-friendly · 0.90- = HR-suppressing<br/>
+            Conditions weight: wind 40% · temp 30% · humidity 30% (lower humidity = drier air = ball travels)<br/>
+            Indoor parks excluded from weather scoring · Black badge = weather data unavailable
           </div>
         </>
       )}
@@ -429,16 +493,14 @@ function App() {
   const [connStatus,setConnStatus] = useState(null);
   const [connMsg,setConnMsg]       = useState("");
 
-  // Leaderboard state
   const [date,setDate]             = useState(TODAY);
-  const [daysBack,setDaysBack]     = useState("90");
+  const [daysBack,setDaysBack]     = useState("180");
   const [topN,setTopN]             = useState("50");
   const [loading,setLoading]       = useState(false);
   const [error,setError]           = useState(null);
   const [lbData,setLbData]         = useState(null);
   const [selected,setSelected]     = useState(null);
   const [selectedGames,setSelectedGames] = useState(new Set());
-  const [parksData,setParksData]         = useState(null);
   const [search,setSearch]         = useState("");
   const [gradeFilter,setGradeFilter]     = useState("ALL");
   const [sortField,setSortField]   = useState("hr_probability");
@@ -454,57 +516,50 @@ function App() {
   const runLeaderboard = useCallback(async()=>{
     if(!token){setError("Set your secret token in the Config tab.");return;}
     setLoading(true);setError(null);setSelected(null);setLbData(null);
+    setSelectedGames(new Set());  // clear filter on new run
     try {
       const sched = await apiFetch(`/schedule?date=${date}`,token,{method:"GET"});
       const allGames = sched.games||[];
       if(!allGames.length){setError("No games found for this date.");setLoading(false);return;}
-      // Populate parks from schedule data — free since we already have it
-      const gameMap={};
-      allGames.forEach(g=>{gameMap[g.park_code]={game:`${g.away_abbr}@${g.home_abbr}`,weather:g.weather,game_time:g.game_time};});
-      setParksData(Object.entries(PARK_FACTORS).map(([code,factor])=>({
-        code,name:PARK_NAMES[code]||code,factor,
-        playing:!!gameMap[code],
-        game:gameMap[code]?.game||null,
-        weather:gameMap[code]?.weather||null,
-        game_time:gameMap[code]?.game_time||null,
-      })));
-      const gamesToScore = selectedGames.size>0
-        ? allGames.filter(g=>selectedGames.has(g.game_pk))
-        : allGames;
+
+      // ALWAYS score all games — local filter applies after
       const CHUNK=3; let allResults=[];
-      for(let i=0;i<gamesToScore.length;i+=CHUNK){
-        const pks=gamesToScore.slice(i,i+CHUNK).map(g=>g.game_pk);
-        setConnMsg(`Scoring games ${i+1}–${Math.min(i+CHUNK,gamesToScore.length)} of ${gamesToScore.length}…`);
+      for(let i=0;i<allGames.length;i+=CHUNK){
+        const pks=allGames.slice(i,i+CHUNK).map(g=>g.game_pk);
+        setConnMsg(`Scoring games ${i+1}–${Math.min(i+CHUNK,allGames.length)} of ${allGames.length}…`);
         try {
           const data=await apiFetch("/leaderboard",token,{method:"POST",
-            body:JSON.stringify({date,days_back:parseInt(daysBack),top_n:parseInt(topN),game_pks:pks})});
+            body:JSON.stringify({date,days_back:parseInt(daysBack),top_n:200,game_pks:pks})});
           allResults=allResults.concat(data.leaderboard||[]);
         } catch(e){console.warn(`Chunk ${i} failed:`,e.message);}
       }
       allResults.sort((a,b)=>b.prediction.hr_probability-a.prediction.hr_probability);
-      allResults=allResults.slice(0,parseInt(topN));
+      // store all results, not sliced — we'll filter/sort/slice in render
       allResults.forEach((r,i)=>r.rank=i+1);
       setLbData({leaderboard:allResults,games:allGames,
-        games_found:gamesToScore.length,batters_scored:allResults.length,
+        games_found:allGames.length,batters_scored:allResults.length,
         generated_at:new Date().toISOString()});
       setConnMsg("");
     } catch(e){setError(e.message);}
     finally{setLoading(false);}
-  },[token,date,daysBack,topN,selectedGames]);
+  },[token,date,daysBack]);
 
   const toggleGame = pk => setSelectedGames(prev=>{
     const n=new Set(prev); n.has(pk)?n.delete(pk):n.add(pk); return n;
   });
 
+  // LOCAL filter & sort — no refetch needed
   const filtered = useMemo(()=>{
     if(!lbData?.leaderboard) return [];
     let rows = lbData.leaderboard.filter(row=>{
-      if(gradeFilter!=="ALL"&&row.prediction?.grade!==gradeFilter) return false;
-      if(search&&!row.batter_name?.toLowerCase().includes(search.toLowerCase())) return false;
+      if(selectedGames.size>0 && !selectedGames.has(row.game_pk)) return false;
+      if(gradeFilter!=="ALL" && row.prediction?.grade!==gradeFilter) return false;
+      if(search && !row.batter_name?.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-    return sortRows(rows, sortField, sortDir);
-  },[lbData,gradeFilter,search,sortField,sortDir]);
+    rows = sortRows(rows, sortField, sortDir);
+    return rows.slice(0, parseInt(topN));
+  },[lbData,gradeFilter,search,sortField,sortDir,selectedGames,topN]);
 
   const BTN = {background:"linear-gradient(135deg,#0f2a45,#1a3a5c)",
     border:"1px solid #2e6aad",color:"#e8f4f8",borderRadius:7,
@@ -517,7 +572,6 @@ function App() {
 
   return (
     <div style={{minHeight:"100vh",background:"#05090f"}}>
-      {/* Header */}
       <div style={{background:"linear-gradient(135deg,#080f1a,#0d1e33)",
         borderBottom:"1px solid #1e2a3a",padding:"14px 20px",
         display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
@@ -534,7 +588,6 @@ function App() {
         </div>
       </div>
 
-      {/* Config */}
       {tab==="config"&&(
         <div style={{maxWidth:520,margin:"28px auto",padding:"0 20px"}}>
           <div style={{fontSize:11,color:"#4a7fa5",letterSpacing:3,marginBottom:18}}>CONFIGURATION</div>
@@ -546,7 +599,9 @@ function App() {
             setConnStatus("testing");setConnMsg("Connecting...");
             try{
               const d=await apiFetch("/health",token,{method:"GET"});
-              setConnStatus("ok");setConnMsg(`Connected — Season ${d.season}`);
+              const mv = d.model_version || "?";
+              const ml = d.model_loaded ? "✓" : "✗";
+              setConnStatus("ok");setConnMsg(`Connected — Season ${d.season} · model ${mv} ${ml}`);
             }catch(e){setConnStatus("error");setConnMsg(e.message);}
           }} style={{...BTN,marginTop:12,width:"100%",opacity:token?1:0.4}}>
             {connStatus==="testing"?"⟳ TESTING…":"TEST CONNECTION"}
@@ -558,30 +613,31 @@ function App() {
           <div style={{marginTop:14,padding:"10px 14px",background:"#0a1628",
             border:"1px solid #1e3a5f",borderRadius:8,fontSize:9,color:"#4a7fa5",lineHeight:1.8}}>
             Token sent as <span style={{color:"#ff9f1c"}}>x-token</span> header.<br/>
-            Must match <span style={{color:"#ff9f1c"}}>SECRET_TOKEN</span> env var on Lambda.<br/>
-            Saved to localStorage — enter once per device.
+            Saved to localStorage — enter once per device.<br/>
+            <br/>
+            <strong style={{color:"#7a9ab5"}}>iOS:</strong> Tap Share → Add to Home Screen<br/>
+            <strong style={{color:"#7a9ab5"}}>Android:</strong> Menu → Add to Home Screen<br/>
+            App will open fullscreen like a native app.
           </div>
         </div>
       )}
 
-      {/* Parks */}
-      {tab==="parks"&&<ParksTab parksData={parksData}/>}
+      {tab==="parks"&&<ParksTab games={lbData?.games||[]}/>}
 
-      {/* Leaderboard */}
       {tab==="leaderboard"&&(
         <div style={{padding:"16px 20px"}}>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
             <div style={{flex:"0 0 140px"}}>
               <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>DATE</label>
-              <input type="date" value={date} onChange={e=>{setDate(e.target.value);setSelectedGames(new Set());setLbData(null);}}/>
+              <input type="date" value={date} onChange={e=>{setDate(e.target.value);setLbData(null);}}/>
             </div>
             <div style={{flex:"0 0 90px"}}>
               <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>DAYS BACK</label>
-              <input type="number" value={daysBack} onChange={e=>setDaysBack(e.target.value)} min="14" max="180"/>
+              <input type="number" value={daysBack} onChange={e=>setDaysBack(e.target.value)} min="14" max="365"/>
             </div>
             <div style={{flex:"0 0 70px"}}>
               <label style={{fontSize:9,color:"#4a7fa5",letterSpacing:2,display:"block",marginBottom:5}}>TOP N</label>
-              <input type="number" value={topN} onChange={e=>setTopN(e.target.value)} min="10" max="100"/>
+              <input type="number" value={topN} onChange={e=>setTopN(e.target.value)} min="10" max="200"/>
             </div>
             <button onClick={runLeaderboard} disabled={loading||!token}
               style={{...BTN,padding:"9px 24px",fontSize:12,letterSpacing:3,alignSelf:"flex-end",
@@ -602,7 +658,7 @@ function App() {
           {lbData&&(
             <div style={{display:"grid",gridTemplateColumns:selected?"1fr 320px":"1fr",gap:16,alignItems:"start"}}>
               <div>
-                {/* Game chips */}
+                {/* Game chips — LOCAL filter only, no refetch */}
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
                   {(lbData.games||[]).map(g=>{
                     const active=selectedGames.has(g.game_pk);
@@ -619,13 +675,12 @@ function App() {
                 </div>
                 <div style={{fontSize:9,color:"#4a7fa5",marginBottom:10}}>
                   {selectedGames.size===0
-                    ?"No games selected — ▶ RUN scores all matchups"
-                    :`${selectedGames.size} game${selectedGames.size>1?"s":""} selected · `}
+                    ?"All games shown · tap to filter"
+                    :`Filtering ${selectedGames.size} game${selectedGames.size>1?"s":""} · `}
                   {selectedGames.size>0&&
                     <span onClick={()=>setSelectedGames(new Set())}
-                      style={{color:"#ff6b35",cursor:"pointer",textDecoration:"underline"}}>clear</span>}
+                      style={{color:"#ff6b35",cursor:"pointer",textDecoration:"underline"}}>show all</span>}
                 </div>
-                {/* Filters */}
                 <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
                   <input value={search} onChange={e=>setSearch(e.target.value)}
                     placeholder="Search batter…" style={{width:150,padding:"5px 10px",fontSize:10}}/>
@@ -633,9 +688,8 @@ function App() {
                     style={{width:75,padding:"5px 8px",fontSize:10}}>
                     {["ALL","A+","A","B+","B","C+","C","D"].map(g=><option key={g} value={g}>{g}</option>)}
                   </select>
-                  <span style={{fontSize:9,color:"#4a7fa5",marginLeft:"auto"}}>{filtered.length} results</span>
+                  <span style={{fontSize:9,color:"#4a7fa5",marginLeft:"auto"}}>{filtered.length} shown</span>
                 </div>
-                {/* Table header */}
                 <div style={{display:"grid",
                   gridTemplateColumns:"36px 1fr 80px 65px 65px 65px 55px",
                   gap:4,padding:"6px 10px",borderBottom:"1px solid #1e2a3a"}}>
