@@ -523,7 +523,7 @@ function App() {
       if(!allGames.length){setError("No games found for this date.");setLoading(false);return;}
 
       // ALWAYS score all games — local filter applies after
-      const CHUNK=3; let allResults=[];
+      const CHUNK=1; let allResults=[];
       for(let i=0;i<allGames.length;i+=CHUNK){
         const pks=allGames.slice(i,i+CHUNK).map(g=>g.game_pk);
         setConnMsg(`Scoring games ${i+1}–${Math.min(i+CHUNK,allGames.length)} of ${allGames.length}…`);
